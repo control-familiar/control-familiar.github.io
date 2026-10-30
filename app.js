@@ -1,6 +1,6 @@
 // ===================== ESTADO Y CONEXIÓN A SUPABASE =====================
-var SUPABASE_URL = 'https://krgwoiufhvhoqucqjpff.supabase.co';
-var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZ3dvaXVmaHZob3F1Y3FqcGZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0MDA2MTIsImV4cCI6MjA5OTk3NjYxMn0.HxA7P1_LUEkZq75kMPKmiCLixeJQ2sROXcmW37gnQOE';
+var SUPABASE_URL = 'https://ssfbamnomyjkuixqzxok.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNzZmJhbW5vbXlqa3VpeHF6eG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTU5MzEsImV4cCI6MjEwODk3MTkzMX0.6RX4y2yPr4JJT5V9iWf9231ajal6BD5oefTmJgQOhMA';
 var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], gimnasioVisitas: [], usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
@@ -2889,7 +2889,7 @@ function logoEntidadHtml(centro){
   var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', mercadopago:'mercadopago.webp'}[e];
   var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', mercadopago:'Mercado Pago'}[e];
   if(!archivo) return '';
-  return '<span class="entidad-logo-wrap"><img class="entidad-logo" src="/control-economico/assets/logos/'+archivo+'" alt="'+nombreEntidad+'" title="'+nombreEntidad+'"></span>';
+  return '<span class="entidad-logo-wrap"><img class="entidad-logo" src="assets/logos/'+archivo+'" alt="'+nombreEntidad+'" title="'+nombreEntidad+'"></span>';
 }
 function renderSaldos(){
   var s = obtenerSaldos();

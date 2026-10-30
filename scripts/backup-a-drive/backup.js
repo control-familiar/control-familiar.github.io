@@ -8,7 +8,7 @@
 //   GDRIVE_OAUTH_REFRESH_TOKEN /  no como una cuenta de servicio: esas no tienen cuota en Drive normal)
 import { google } from 'googleapis';
 
-const SUPABASE_URL = 'https://krgwoiufhvhoqucqjpff.supabase.co';
+const SUPABASE_URL = 'https://ssfbamnomyjkuixqzxok.supabase.co';
 const SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 const GDRIVE_FOLDER_ID = requireEnv('GDRIVE_FOLDER_ID');
 const GDRIVE_OAUTH_CLIENT_ID = requireEnv('GDRIVE_OAUTH_CLIENT_ID');

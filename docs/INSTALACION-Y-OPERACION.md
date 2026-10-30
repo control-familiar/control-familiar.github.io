@@ -37,7 +37,7 @@ npm test            # una corrida (vitest + jsdom)
 npm run test:watch
 ```
 
-Para ver la app localmente alcanza con servir la carpeta con cualquier servidor estático. El `index.html` referencia `/control-economico/favicon.ico`, así que ese ícono solo se ve bajo esa ruta.
+Para ver la app localmente alcanza con servir la carpeta con cualquier servidor estático (todas las rutas son relativas).
 
 ## Backup diario a Google Drive
 
