@@ -6367,7 +6367,8 @@ async function handleAction(action, id){
       return { id:uid(), fecha: fechaCortaAISO(r.fecha), fechaConsumo: r.fechaConsumo ? fechaCortaAISO(r.fechaConsumo) : '', tarjetaMarca: tarjetaMarcaLote, cuotas: r.cuota||'', proveedor: r.proveedor||'', detalle: r.tipo||'', monto: r.monto,
         centroId: '', categoriaId: sugerido.categoriaId, subcategoriaId: sugerido.subcategoriaId, incluir:true, guardarRegla:false };
     });
-    STATE.importMsg = defaultCentroId ? null : {type:'err', text:'No encontré un Centro de Costo con el código esperado para esta entidad. Asigná uno por fila abajo, o cargalo primero en ABM → Centros de Costo.'};
+    // El Centro de Costo queda vacío (R4): lo elige quien importa, por fila o para todas.
+    STATE.importMsg = null;
     if(res.omitidas){
       var omitTexto = res.omitidasTexto || res.omitidas+' fila(s) en dólares no se importaron (esta entidad solo carga montos en pesos); cargalas manualmente si corresponde.';
       STATE.importMsg = STATE.importMsg ? {type: STATE.importMsg.type, text: STATE.importMsg.text+' '+omitTexto} : {type:'ok', text: omitTexto};
