@@ -4646,6 +4646,14 @@ function bindEvents(){
     });
   });
 
+  // En colores en masa el separador es el tab: la tecla Tab lo escribe en vez de pasar al botón.
+  var bulkColores = document.getElementById('bulk-colores-categorias');
+  if(bulkColores) bulkColores.addEventListener('keydown', function(ev){
+    if(ev.key!=='Tab' || ev.shiftKey) return;
+    ev.preventDefault();
+    bulkColores.setRangeText('\t', bulkColores.selectionStart, bulkColores.selectionEnd, 'end');
+  });
+
   document.querySelectorAll('.tab').forEach(function(t){
     t.addEventListener('click', function(){
       var tabId = t.getAttribute('data-tab');
