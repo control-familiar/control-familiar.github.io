@@ -22,7 +22,8 @@ App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyecc
 
 ## 1. Primeros pasos
 
-- **Ingreso:** abrí la app, escribí email y contraseña y tocá **Iniciar sesión**. No hay registro público: los usuarios los da de alta el soporte.
+- **Ingreso:** abrí la app, escribí email y contraseña y tocá **Iniciar sesión**. No hay registro público: los usuarios los da de alta el soporte. El ojito muestra la contraseña que estás escribiendo.
+- **Recordarme en este dispositivo** (tildado por defecto): la sesión queda abierta y no hace falta volver a entrar. Destildalo en una compu prestada: la sesión se cierra al cerrar el navegador. En el iPhone, si pasás más de una semana sin abrir la app, Safari puede borrar la sesión; agregando la app a la pantalla de inicio no pasa.
 - **Menú de cuenta** (círculo con tus iniciales, arriba a la derecha): elegí el **color del tema** (verde, azul, naranja), **modo claro/oscuro** y **Cerrar sesión**. Las preferencias quedan guardadas en el navegador.
 - **Celular:** el menú lateral se abre con el botón de hamburguesa (☰). Para cargar efectivo, el botón flotante **+ Efectivo** abajo a la derecha.
 - **Botón “+ Movimiento”** (arriba del menú lateral): abre el alta de un movimiento desde cualquier pestaña.

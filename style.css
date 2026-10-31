@@ -403,6 +403,9 @@ footer.small{ margin-top:28px; font-size:11px; color:var(--ink-soft); text-align
 .password-wrap input{ padding-right:38px; box-sizing:border-box; }
 .password-ojo{ position:absolute; top:50%; right:4px; transform:translateY(-50%); background:none; border:none; box-shadow:none; color:var(--ink-soft); padding:4px 8px; font-size:15px; line-height:1; cursor:pointer; width:auto; }
 .password-ojo:hover{ background:none; color:var(--ink); }
+.login-recordar{ display:flex; align-items:center; gap:8px; font-size:13px !important; color:var(--ink) !important; font-weight:400 !important;
+  margin-bottom:16px; cursor:pointer; }
+.login-recordar input{ width:18px; height:18px; margin:0; padding:0; accent-color:var(--accent); }
 
 .modal-overlay{
   position:fixed; inset:0; background:rgba(51,65,59,.45); z-index:1000;

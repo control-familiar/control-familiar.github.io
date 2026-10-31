@@ -26,3 +26,46 @@ describe('Login: ojito de la contraseña', () => {
     expect(win.document.getElementById('btnVerPassword').getAttribute('type')).toBe('button');
   });
 });
+
+describe('Login: Recordarme', () => {
+  it('viene tildado por defecto', () => {
+    const win = loadApp();
+    expect(win.document.getElementById('login-recordar').checked).toBe(true);
+    expect(win.recordarSesion()).toBe(true);
+  });
+
+  it('tildado, la sesión se guarda en el dispositivo (localStorage)', () => {
+    const win = loadApp();
+    win.ALMACEN_SESION.setItem('sb-sesion', 'token');
+    expect(win.localStorage.getItem('sb-sesion')).toBe('token');
+    expect(win.sessionStorage.getItem('sb-sesion')).toBe(null);
+    expect(win.ALMACEN_SESION.getItem('sb-sesion')).toBe('token');
+  });
+
+  it('destildado, la sesión dura hasta cerrar el navegador (sessionStorage)', () => {
+    const win = loadApp();
+    win.localStorage.setItem('controlRecordarme', 'false');
+    win.ALMACEN_SESION.setItem('sb-sesion', 'token');
+    expect(win.sessionStorage.getItem('sb-sesion')).toBe('token');
+    expect(win.localStorage.getItem('sb-sesion')).toBe(null);
+    win.ALMACEN_SESION.removeItem('sb-sesion');
+    expect(win.sessionStorage.getItem('sb-sesion')).toBe(null);
+  });
+
+  it('al iniciar sesión se guarda la preferencia antes de entrar, y se recuerda la próxima vez', async () => {
+    const win = loadApp();
+    let preferenciaAlEntrar = null;
+    win.sb = { auth: { signInWithPassword: async () => {
+      preferenciaAlEntrar = win.localStorage.getItem('controlRecordarme');
+      return { error: { message: 'credenciales de prueba' } };
+    } } };
+    win.document.getElementById('login-email').value = 'a@ejemplo.com';
+    win.document.getElementById('login-password').value = 'x';
+    win.document.getElementById('login-recordar').checked = false;
+    await win.intentarLogin();
+    expect(preferenciaAlEntrar).toBe('false');
+
+    const otraVez = loadApp(); // misma "pestaña": jsdom comparte localStorage por origen
+    expect(otraVez.document.getElementById('login-recordar').checked).toBe(otraVez.recordarSesion());
+  });
+});

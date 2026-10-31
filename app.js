@@ -1,7 +1,27 @@
 // ===================== ESTADO Y CONEXIÓN A SUPABASE =====================
 var SUPABASE_URL = 'https://ssfbamnomyjkuixqzxok.supabase.co';
 var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNzZmJhbW5vbXlqa3VpeHF6eG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTU5MzEsImV4cCI6MjEwODk3MTkzMX0.6RX4y2yPr4JJT5V9iWf9231ajal6BD5oefTmJgQOhMA';
-var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// "Recordarme" del login: tildado (por defecto), la sesión queda guardada en el dispositivo (localStorage) y
+// Supabase la renueva sola, así no hay que volver a entrar; destildado, dura hasta cerrar el navegador
+// (sessionStorage), para una compu prestada. La preferencia se guarda en controlRecordarme.
+function recordarSesion(){
+  try{ return localStorage.getItem('controlRecordarme') !== 'false'; }catch(e){ return true; }
+}
+var ALMACEN_SESION = {
+  getItem: function(clave){
+    try{ return (recordarSesion() ? localStorage : sessionStorage).getItem(clave); }catch(e){ return null; }
+  },
+  setItem: function(clave, valor){
+    try{ (recordarSesion() ? localStorage : sessionStorage).setItem(clave, valor); }catch(e){}
+  },
+  removeItem: function(clave){
+    try{ localStorage.removeItem(clave); }catch(e){}
+    try{ sessionStorage.removeItem(clave); }catch(e){}
+  }
+};
+var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storage: ALMACEN_SESION, persistSession: true, autoRefreshToken: true }
+}) : null;
 
 var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], vencRecurrentes: [], vencDraft: null, usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
   importEntidad:'mp', importBanco:'nacion', importVencimiento:'', importTarjetaMarca:'', importRaw:'', importPreview:null, importPreviewExcel:null, importMsg:null,
@@ -628,6 +648,9 @@ async function intentarLogin(){
   var email = document.getElementById('login-email').value.trim();
   var password = document.getElementById('login-password').value;
   if(!email || !password){ mostrarLogin('Completá email y contraseña.'); return; }
+  // Antes de iniciar sesión: ahí Supabase guarda la sesión, en el almacén que corresponde al tilde.
+  var recordar = !!(document.getElementById('login-recordar')||{checked:true}).checked;
+  try{ localStorage.setItem('controlRecordarme', recordar ? 'true' : 'false'); }catch(e){}
   mostrarLogin('Iniciando sesión...');
   var res = await sb.auth.signInWithPassword({ email: email, password: password });
   if(res.error){ mostrarLogin('No pudimos iniciar sesión: ' + res.error.message); return; }
@@ -6962,6 +6985,7 @@ async function handleAction(action, id){
 
 document.getElementById('btnLogin').addEventListener('click', intentarLogin);
 document.getElementById('login-password').addEventListener('keydown', function(ev){ if(ev.key==='Enter') intentarLogin(); });
+document.getElementById('login-recordar').checked = recordarSesion();
 // Ojito del login: muestra u oculta la contraseña que se está escribiendo (sin perder el foco ni el cursor).
 document.getElementById('btnVerPassword').addEventListener('click', function(){
   var input = document.getElementById('login-password');
