@@ -221,15 +221,80 @@ create table facturas (
 -- No hace falta familia_id: el movimiento ya es de una sola familia.
 create unique index facturas_movimiento_emitida_unq on facturas (movimiento_id, ambiente) where estado = 'emitida';
 
--- Configuración de la familia de a pares clave/valor (tope de Monotributo, CUIT, razón social).
--- Provisoria: en la fase 4 la reemplazan config_catalogo + familia_config (ver docs/MULTI-FAMILIA.md, D3).
--- La familia la lee; la modifica solo el superadmin (S4) o un script.
-create table configuracion (
+-- ============================================================
+-- CONFIGURACIÓN POR FAMILIA (D3)
+--
+-- config_catalogo define cada configuración posible y la documenta
+-- (global). familia_config guarda solo lo que cada familia tiene
+-- distinto del default. Valor efectivo = el de la familia o, si no
+-- tiene, el default (config_valor() acá, configuracionValor() en
+-- app.js). Todos los valores se guardan como texto; "tipo" dice
+-- cómo interpretarlo y se valida al guardar.
+--
+-- Una clave nueva se agrega con un insert en config_catalogo acá
+-- (y como migración cuando haya familias reales), junto con el
+-- código que la usa: el catálogo no se edita desde la app.
+-- ============================================================
+
+create function valor_config_valido(p_tipo text, p_valor text) returns boolean
+  language sql immutable set search_path = ''
+  as $$ select p_valor is null or case p_tipo
+                 when 'numero' then p_valor ~ '^-?[0-9]+(\.[0-9]+)?$'
+                 when 'booleano' then p_valor in ('true', 'false')
+                 else true
+               end $$;
+
+create table config_catalogo (
+  clave text primary key,
+  tipo text not null check (tipo in ('texto', 'numero', 'booleano')),
+  descripcion text not null,
+  valor_default text,  -- null: sin valor salvo que la familia lo configure
+  grupo text not null,  -- para agrupar en la pantalla del superadmin, ej: 'Facturación'
+  orden integer not null default 0,
+  check (valor_config_valido(tipo, valor_default))
+);
+
+-- Si se saca una clave del catálogo, se van con ella los valores de las familias.
+create table familia_config (
   familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
-  clave text not null,
+  clave text not null references config_catalogo(clave) on delete cascade,
   valor text not null,
   primary key (familia_id, clave)
 );
+
+create function validar_familia_config() returns trigger
+  language plpgsql set search_path = ''
+as $$
+declare
+  v_tipo text;
+begin
+  select tipo into v_tipo from public.config_catalogo where clave = new.clave;
+  if v_tipo is not null and not public.valor_config_valido(v_tipo, new.valor) then
+    raise exception 'Valor inválido para % (tipo %): "%"', new.clave, v_tipo, new.valor
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+create trigger familia_config_validar before insert or update on familia_config
+  for each row execute function validar_familia_config();
+
+-- Valor efectivo de una configuración para la familia del usuario logueado (o el default).
+-- Corre con los permisos de quien la llama: RLS sigue aplicando.
+create function config_valor(p_clave text) returns text
+  language sql stable set search_path = ''
+  as $$ select coalesce(
+           (select valor from public.familia_config where familia_id = public.familia_actual() and clave = p_clave),
+           (select valor_default from public.config_catalogo where clave = p_clave)) $$;
+
+insert into config_catalogo (clave, tipo, descripcion, valor_default, grupo, orden) values
+  ('arca_cuit', 'texto', 'CUIT del emisor de las facturas, sin guiones. Va en el comprobante y en su QR.',
+   null, 'Facturación', 1),
+  ('arca_razon_social', 'texto', 'Razón social del emisor, como figura en el comprobante.',
+   null, 'Facturación', 2),
+  ('monotributo_limite_categoria_b', 'numero',
+   'Tope de facturación de los últimos 12 meses para la categoría de Monotributo, en pesos. Vacío: no se controla.',
+   null, 'Facturación', 3);
 
 -- Caché del Token+Sign de WSAA (dura ~12hs; pedir uno nuevo antes de que expire el
 -- anterior hace que ARCA lo rechace). La usa la Edge Function facturar-arca con la
@@ -255,7 +320,7 @@ create table reglas_categorizacion (
 );
 
 -- Índices por familia_id en las tablas donde no lo cubre ya un unique/PK que empiece por familia_id
--- (centros, categorias, subcategorias, movimientos, configuracion, arca_ta).
+-- (centros, categorias, subcategorias, movimientos, familia_config, arca_ta).
 create index vencimientos_familia_idx on vencimientos(familia_id);
 create index deudas_familia_idx on deudas(familia_id);
 create index usdt_movimientos_familia_idx on usdt_movimientos(familia_id);
@@ -287,7 +352,8 @@ alter table vencimientos enable row level security;
 alter table deudas enable row level security;
 alter table usdt_movimientos enable row level security;
 alter table facturas enable row level security;
-alter table configuracion enable row level security;
+alter table config_catalogo enable row level security;
+alter table familia_config enable row level security;
 alter table arca_ta enable row level security;
 alter table reglas_categorizacion enable row level security;
 
@@ -321,14 +387,18 @@ begin
   end loop;
 end $$;
 
--- configuracion: la familia la lee; solo el superadmin la escribe (de cualquier familia).
-create policy leer on configuracion for select to authenticated
+-- config_catalogo: la leen todos los logueados; no se escribe desde la app.
+create policy leer on config_catalogo for select to authenticated using (true);
+
+-- familia_config: la familia la lee (la app la usa para funcionar aunque no se la muestra, C1);
+-- solo el superadmin la escribe, en cualquier familia (S4).
+create policy leer on familia_config for select to authenticated
   using (familia_id = (select familia_actual()) or (select es_superadmin()));
-create policy insertar on configuracion for insert to authenticated
+create policy insertar on familia_config for insert to authenticated
   with check ((select es_superadmin()));
-create policy editar on configuracion for update to authenticated
+create policy editar on familia_config for update to authenticated
   using ((select es_superadmin())) with check ((select es_superadmin()));
-create policy borrar on configuracion for delete to authenticated
+create policy borrar on familia_config for delete to authenticated
   using ((select es_superadmin()));
 
 -- arca_ta: solo la familia (son credenciales temporales de ARCA; el superadmin no las ve).
@@ -374,7 +444,7 @@ as $$
 declare
   -- En orden de dependencias: primero las que otras referencian.
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'configuracion'];
+                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config'];
   t text;
   filas jsonb;
   columnas text;
@@ -398,7 +468,7 @@ begin
     if exists (select 1 from jsonb_array_elements(filas) e where e ->> 'familia_id' is distinct from p_familia_id::text) then
       raise exception 'El backup tiene filas de otra familia en %', t;
     end if;
-    if t <> 'configuracion' then
+    if t <> 'familia_config' then
       execute format('select count(*) from public.%I x join jsonb_array_elements($1) e on x.id = (e ->> ''id'')::uuid
                       where x.familia_id <> $2', t)
         using filas, p_familia_id into n;
@@ -432,7 +502,7 @@ begin
     execute format('insert into public.%1$I (%2$s) select %2$s from jsonb_populate_recordset(null::public.%1$I, $1)
                     on conflict %3$s do %4$s',
                    t, columnas,
-                   case when t = 'configuracion' then '(familia_id, clave)' else '(id)' end,
+                   case when t = 'familia_config' then '(familia_id, clave)' else '(id)' end,
                    coalesce('update set ' || actualizar, 'nothing'))
       using filas;
     get diagnostics n = row_count;

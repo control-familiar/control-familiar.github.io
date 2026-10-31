@@ -314,8 +314,9 @@ Deno.serve(async (req) => {
     const { data: emitidas } = await sb
       .from("facturas").select("importe").eq("estado", "emitida").eq("ambiente", "produccion").gte("fecha", desde).lte("fecha", hoy);
     const acumulado = (emitidas || []).reduce((s, f) => s + (Number(f.importe) || 0), 0);
-    const { data: cfg } = await sb.from("configuracion").select("valor").eq("clave", "monotributo_limite_categoria_b").maybeSingle();
-    const limite = cfg ? Number(cfg.valor) || 0 : 0;
+    // Valor de la familia del usuario o, si no tiene, el default del catálogo (config_valor() en schema.sql).
+    const { data: limiteCfg } = await sb.rpc("config_valor", { p_clave: "monotributo_limite_categoria_b" });
+    const limite = Number(limiteCfg) || 0;
     if (limite > 0 && acumulado + importe > limite) {
       const mensaje = `Esto te haría superar el límite de categoría B: $${(acumulado + importe).toFixed(2)} de $${limite.toFixed(2)} (acumulado 12 meses: $${acumulado.toFixed(2)})`;
       const { data: filaError } = await sb.from("facturas").insert({

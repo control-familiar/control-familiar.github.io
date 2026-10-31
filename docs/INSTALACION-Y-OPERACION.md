@@ -70,7 +70,7 @@ Se usa OAuth (con el usuario dueño de la carpeta) y no una cuenta de servicio, 
 
 La Edge Function `supabase/functions/facturar-arca` emite **Factura C a Consumidor Final** para ventas de USDT, valida el tope de Monotributo (12 meses móviles) y guarda el resultado en la tabla `facturas`. Corre con el JWT del usuario logueado (mismas políticas RLS).
 
-- Las tablas necesarias (`facturas`, `configuracion`) ya están en `schema.sql`.
+- Las tablas necesarias (`facturas`, `familia_config`) ya están en `schema.sql`. El CUIT, la razón social y el tope de Monotributo de cada familia los carga el soporte en **Administración → Configuración** (ver [MULTI-FAMILIA.md](MULTI-FAMILIA.md#configuración-por-familia-d3)).
 - Homologación (pruebas) y producción son independientes; se alterna con el secret `ARCA_AMBIENTE`.
 - Los secrets se cargan con `npx supabase secrets set NOMBRE=valor`, nunca en el código ni en el chat:
 

@@ -19,10 +19,10 @@ describe('Backup: tablas incluidas', () => {
     expect(tablasDelScriptDiario()).toEqual(Array.from(win.TABLAS_BACKUP));
   });
 
-  it('incluye todas las tablas del schema salvo arca_ta (token temporal) y superadmins', () => {
+  it('incluye todas las tablas del schema salvo arca_ta (token temporal), superadmins y config_catalogo (global, en el schema)', () => {
     const win = loadApp();
     const schema = readFileSync(path.join(ROOT, 'schema.sql'), 'utf8');
-    const fueraDelBackup = ['arca_ta', 'superadmins'];
+    const fueraDelBackup = ['arca_ta', 'superadmins', 'config_catalogo'];
     const tablasSchema = [...schema.matchAll(/create table (\w+)/g)].map(m => m[1]).filter(t => !fueraDelBackup.includes(t));
     expect([...win.TABLAS_BACKUP].sort()).toEqual(tablasSchema.sort());
   });
@@ -44,7 +44,7 @@ describe('Backup: armar (descargar)', () => {
       familias: [{ id: 'fa', nombre: 'A' }, { id: 'fb', nombre: 'B' }],
       miembros: [{ user_id: 'u1', familia_id: 'fa' }],
       movimientos,
-      configuracion: [{ familia_id: 'fa', clave: 'arca_cuit', valor: '1' }]
+      familia_config: [{ familia_id: 'fa', clave: 'arca_cuit', valor: '1' }]
     });
     win.sb = sbMock.client;
     // El superadmin está mirando la familia A, pero el backup lleva todas.
@@ -56,7 +56,7 @@ describe('Backup: armar (descargar)', () => {
     expect(backup.miembros).toHaveLength(1);
     expect(backup.movimientos).toHaveLength(1500);
     expect(backup.movimientos[0]).toEqual(movimientos[0]); // filas crudas, con created_at y familia_id
-    expect(backup.configuracion[0].clave).toBe('arca_cuit');
+    expect(backup.familia_config[0].clave).toBe('arca_cuit');
     for (const t of win.TABLAS_BACKUP) expect(Array.isArray(backup[t])).toBe(true);
     expect(sbMock.selects.every(s => s.filtros.length === 0)).toBe(true);
   });
@@ -70,12 +70,12 @@ describe('Backup: restaurar una familia', () => {
     miembros: [{ user_id: 'u1', familia_id: 'fa' }],
     centros: [{ id: 'ca', familia_id: 'fa', codigo: 'A' }, { id: 'cb', familia_id: 'fb', codigo: 'B' }],
     movimientos: [{ id: 'ma', familia_id: 'fa' }, { id: 'mb1', familia_id: 'fb' }, { id: 'mb2', familia_id: 'fb' }],
-    configuracion: [{ familia_id: 'fb', clave: 'arca_cuit', valor: '2' }]
+    familia_config: [{ familia_id: 'fb', clave: 'arca_cuit', valor: '2' }]
   };
   let win, sbMock;
   beforeEach(() => {
     win = loadApp();
-    sbMock = mockSb({}, { restaurar_familia: { data: { centros: 1, movimientos: 2, configuracion: 1 }, error: null } });
+    sbMock = mockSb({}, { restaurar_familia: { data: { centros: 1, movimientos: 2, familia_config: 1 }, error: null } });
     win.sb = sbMock.client;
   });
 
@@ -88,7 +88,7 @@ describe('Backup: restaurar una familia', () => {
 
   it('manda a restaurar_familia() solo las filas de la familia elegida', async () => {
     const resultado = await win.restaurarFamilia(backup, 'fb');
-    expect(resultado).toEqual({ centros: 1, movimientos: 2, configuracion: 1 });
+    expect(resultado).toEqual({ centros: 1, movimientos: 2, familia_config: 1 });
     expect(sbMock.calls).toHaveLength(1);
     const { nombre, args } = sbMock.calls[0];
     expect(nombre).toBe('restaurar_familia');
@@ -96,7 +96,7 @@ describe('Backup: restaurar una familia', () => {
     expect(args.p_datos.familia).toEqual({ id: 'fb', nombre: 'Familia B' });
     expect(args.p_datos.centros.map(r => r.id)).toEqual(['cb']);
     expect(args.p_datos.movimientos.map(r => r.id)).toEqual(['mb1', 'mb2']);
-    expect(args.p_datos.configuracion).toHaveLength(1);
+    expect(args.p_datos.familia_config).toHaveLength(1);
     expect(args.p_datos.miembros).toBeUndefined(); // los miembros no se restauran (dependen de auth.users)
     for (const t of win.TABLAS_DE_FAMILIA) expect(Array.isArray(args.p_datos[t])).toBe(true);
   });

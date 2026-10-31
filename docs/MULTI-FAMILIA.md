@@ -79,12 +79,23 @@ la primera familia real, pasar a probar en local (`supabase start`, requiere Doc
 
 Toda configuración personal está asociada a la familia y documentada en la propia base:
 
-- `config_catalogo (clave, tipo, descripcion, valor_default, grupo)` — **global**: define cada configuración
-  y su documentación. La leen todos; la modifica solo el superadmin.
-- `familia_config (familia_id, clave, valor)` — solo lo que cada familia tiene distinto del default.
+- `config_catalogo (clave, tipo, descripcion, valor_default, grupo, orden)` — **global**: define cada configuración
+  y su documentación. La leen todos los logueados. **Se modifica solo en `schema.sql`** (y con una migración cuando
+  haya familias reales), junto con el código que usa la clave; no desde la app (K1).
+- `familia_config (familia_id, clave, valor)` — solo lo que cada familia tiene distinto del default. La lee la
+  familia (la app la usa) y el superadmin; la escribe solo el superadmin, desde Administración (S4).
+- Todo se guarda como texto; `tipo` (`texto`, `numero`, `booleano`) dice cómo leerlo. La pantalla muestra el
+  control que corresponde y un trigger en la base rechaza números o booleanos mal escritos (K2).
+- Valor efectivo = el de la familia o, si no tiene, el default: `config_valor(clave)` en la base (la usa
+  `facturar-arca`) y `configuracionValor(clave)` en `app.js`.
+- Catálogo inicial (grupo "Facturación", sin default, K3): `arca_cuit`, `arca_razon_social`,
+  `monotributo_limite_categoria_b` (vacío = no se controla el tope). Mismos nombres que en el original.
+- El superadmin edita los valores en **Administración → Configuración de _familia elegida_**: vacío o "Usar
+  default" borra el valor propio.
 - Las funciones activables son claves booleanas del catálogo (`feature.usdt`, `feature.dolares`, …).
 - Una configuración nueva aparece en todas las familias con su valor por defecto.
-- Reemplaza a la tabla `configuracion` del original (monotributo, CUIT, razón social).
+- Reemplaza a la tabla `configuracion` del original (monotributo, CUIT, razón social). Los backups v3 anteriores a
+  la fase 4 traen `configuracion`: al restaurarlos esa parte se ignora (K4).
 - La familia **no ve** su configuración en el ABM (C1): la ve y la edita solo el superadmin. La app sí la lee
   para funcionar (ej. el CUIT para facturar).
 
@@ -204,9 +215,9 @@ create policy borrar  on <tabla> for delete using (familia_id = (select familia_
 
 - `familias`, `miembros`: cada uno lee lo suyo; el superadmin todo. Nadie escribe desde la app (altas por script).
 - `superadmins`: cada uno lee solo su fila (para que la app sepa si es superadmin).
-- Tablas globales (`config_catalogo`, `importadores`): leen todos los logueados; escribe el superadmin.
+- Tablas globales (`config_catalogo`, `importadores`): leen todos los logueados. `config_catalogo` no se escribe
+  desde la app (K1).
 - `familia_config`, `familia_importadores_ocultos`: lee la familia y el superadmin; escribe **solo** el superadmin (S4).
-  Hasta la fase 4 lo mismo vale para la tabla `configuracion` del original, que sigue con `familia_id` (P1).
 - `arca_ta`: solo la familia; el superadmin **no** la ve (son credenciales temporales de ARCA) (P3).
 - Usuario sin familia y que no es superadmin: no ve nada.
 
@@ -303,7 +314,7 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
 | 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | ✅ hecho |
 | 3 | Personas y titulares (D5) | pendiente |
-| 4 | Catálogo de configuración + valores por familia (D3) | pendiente |
+| 4 | Catálogo de configuración + valores por familia (D3) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
 | 5 | Funciones activables (D4) | pendiente |
 | 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | pendiente |
 | 7 | Importadores en la base + ocultos por familia (D7) | pendiente |
@@ -336,7 +347,7 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | N3 | Creación de usuarios | A mano en Supabase + script de asignación |
 | N4 | Botón de backup | Solo superadmin, descarga todas |
 | N5 | FK compuestas | Sí |
-| P1 | Tabla `configuracion` en la fase 1 | Se queda con `familia_id`, PK `(familia_id, clave)`; la escribe solo el superadmin; la reemplaza la fase 4 |
+| P1 | Tabla `configuracion` en la fase 1 | ~~Se queda con `familia_id`~~ — reemplazada en la fase 4 por `config_catalogo` + `familia_config` |
 | P2 | `gimnasio_visitas.persona` | ~~Queda como en el original~~ — reemplazada por G1 |
 | P3 | `arca_ta` | El superadmin no la ve |
 | P4 | Parámetros de los scripts de alta | Bloque `DO` con variables arriba, validaciones y verificación final |
@@ -351,6 +362,10 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | Q5 | Selector de familia | Recuerda la última elegida; si no, la primera alfabética |
 | G1 | Gimnasio | No existe en este proyecto: se sacó tabla, pestaña y código |
 | C1 | ¿La familia ve su configuración? | No: solo el superadmin (la app la lee igual para funcionar) |
+| K1 | Quién agrega claves al catálogo | Solo `schema.sql` / migraciones; desde la app solo se editan valores |
+| K2 | Tipos de configuración | Texto con `tipo`; control según tipo en la pantalla + trigger que valida en la base |
+| K3 | Catálogo inicial | Las 3 claves del original, mismos nombres, sin default |
+| K4 | Backups con la tabla vieja `configuracion` | Esa parte se ignora al restaurar |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

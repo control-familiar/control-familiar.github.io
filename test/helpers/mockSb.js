@@ -36,16 +36,21 @@ export function mockSb(tablas = {}, rpcs = {}) {
           }
         };
       },
+      // Admite varios eq() encadenados; `val` es el del primero (el id, en dbDelete) y, si hay más de
+      // uno, `filtros` los trae todos.
       delete() {
-        return {
-          eq: async (col, val) => {
-            calls.push({ op: 'delete', table, val });
-            return { error: null };
+        const filtros = [];
+        const consulta = {
+          eq: (col, val) => { filtros.push([col, val]); return consulta; },
+          then: (resolver, rechazar) => {
+            calls.push(Object.assign({ op: 'delete', table, val: filtros[0] && filtros[0][1] }, filtros.length > 1 ? { filtros } : {}));
+            return Promise.resolve({ error: null }).then(resolver, rechazar);
           }
         };
+        return consulta;
       },
-      upsert(rows) {
-        calls.push({ op: 'upsert', table, rows });
+      upsert(rows, opciones) {
+        calls.push({ op: 'upsert', table, rows, opciones });
         return { select: async () => ({ data: rows, error: null }) };
       }
     };

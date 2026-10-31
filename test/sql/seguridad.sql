@@ -23,7 +23,7 @@ declare
   -- Tablas de datos de cada familia (todas con familia_id)
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
                          'deudas', 'usdt_movimientos', 'facturas',
-                         'configuracion', 'arca_ta', 'reglas_categorizacion'];
+                         'familia_config', 'arca_ta', 'reglas_categorizacion'];
   t text;
   n int;
   ok text[] := '{}';
@@ -71,7 +71,11 @@ begin
       (fa, current_date, 'venta', 1, mov_a), (fb, current_date, 'venta', 1, mov_b);
     insert into public.facturas (familia_id, movimiento_id, fecha, punto_venta, importe) values
       (fa, mov_a, current_date, 1, 100), (fb, mov_b, current_date, 1, 200);
-    insert into public.configuracion (familia_id, clave, valor) values
+    -- una clave de prueba con default, para ver config_valor() con y sin valor propio
+    insert into public.config_catalogo (clave, tipo, descripcion, valor_default, grupo)
+      values ('__test_numero', 'numero', 'Clave de prueba', '5', 'Tests');
+    insert into public.familia_config (familia_id, clave, valor) values (fb, '__test_numero', '7');
+    insert into public.familia_config (familia_id, clave, valor) values
       (fa, 'arca_cuit', '20000000001'), (fb, 'arca_cuit', '20000000002');
     insert into public.arca_ta (familia_id, ambiente, token, sign, expira_en) values
       (fa, 'homologacion', 'token A', 'sign A', now() + interval '1 hour'),
@@ -200,19 +204,44 @@ begin
     end;
     ok := array_append(ok, 'A: FK compuestas impiden apuntar a centro/categoría/subcategoría/movimiento de B');
 
-    -- configuracion: la familia la lee pero no la escribe
+    -- familia_config: la familia la lee pero no la escribe
     begin
-      insert into public.configuracion (clave, valor) values ('arca_razon_social', 'X');
+      insert into public.familia_config (clave, valor) values ('arca_razon_social', 'X');
       raise exception 'FALLA: A insertó configuración';
     exception when insufficient_privilege then null;
     end;
-    update public.configuracion set valor = 'X' where familia_id = fa;
+    update public.familia_config set valor = 'X' where familia_id = fa;
     get diagnostics n = row_count;
     if n <> 0 then raise exception 'FALLA: A editó su configuración'; end if;
-    delete from public.configuracion where familia_id = fa;
+    delete from public.familia_config where familia_id = fa;
     get diagnostics n = row_count;
     if n <> 0 then raise exception 'FALLA: A borró su configuración'; end if;
     ok := array_append(ok, 'A: lee su configuración pero no la escribe');
+
+    -- config_catalogo: lo lee, no lo escribe
+    select count(*) into n from public.config_catalogo where clave in ('arca_cuit', 'arca_razon_social', 'monotributo_limite_categoria_b');
+    if n <> 3 then raise exception 'FALLA: A no ve el catálogo de configuración'; end if;
+    begin
+      insert into public.config_catalogo (clave, tipo, descripcion, grupo) values ('__intrusa', 'texto', 'X', 'X');
+      raise exception 'FALLA: A agregó una clave al catálogo';
+    exception when insufficient_privilege then null;
+    end;
+    update public.config_catalogo set valor_default = '1' where clave = '__test_numero';
+    get diagnostics n = row_count;
+    if n <> 0 then raise exception 'FALLA: A cambió un default del catálogo'; end if;
+    ok := array_append(ok, 'A: lee el catálogo de configuración pero no lo escribe');
+
+    -- config_valor(): el valor propio o, si no tiene, el default
+    if public.config_valor('arca_cuit') is distinct from '20000000001' then
+      raise exception 'FALLA: config_valor() no devuelve el valor propio de A';
+    end if;
+    if public.config_valor('__test_numero') is distinct from '5' then
+      raise exception 'FALLA: config_valor() no devuelve el default para A (B tiene otro valor)';
+    end if;
+    if public.config_valor('arca_razon_social') is not null then
+      raise exception 'FALLA: config_valor() inventa un valor sin default ni valor propio';
+    end if;
+    ok := array_append(ok, 'A: config_valor() da su valor o el default, nunca el de otra familia');
 
     -- arca_ta: upsert como la Edge Function (sin mandar familia_id)
     insert into public.arca_ta (ambiente, token, sign, expira_en)
@@ -281,6 +310,9 @@ begin
     if exists (select 1 from public.centros where id = nuevo) then
       raise exception 'FALLA: B ve el centro que creó A';
     end if;
+    if public.config_valor('__test_numero') is distinct from '7' then
+      raise exception 'FALLA: config_valor() no devuelve el valor propio de B';
+    end if;
     ok := array_append(ok, 'B: no ve nada de A');
 
     reset role;
@@ -320,7 +352,7 @@ begin
     exception when insufficient_privilege then null;
     end;
     foreach t in array tablas loop
-      continue when t = 'configuracion';
+      continue when t = 'familia_config';
       execute format('update public.%I set familia_id = familia_id where familia_id in ($1, $2)', t) using fa, fb;
       get diagnostics n = row_count;
       if n <> 0 then raise exception 'FALLA: el superadmin editó % filas en %', n, t; end if;
@@ -330,11 +362,28 @@ begin
     end loop;
     ok := array_append(ok, 'superadmin: no inserta, edita ni borra datos de las familias');
 
-    insert into public.configuracion (familia_id, clave, valor) values (fa, 'arca_razon_social', 'Razón A');
-    update public.configuracion set valor = '20000000009' where familia_id = fb and clave = 'arca_cuit';
+    insert into public.familia_config (familia_id, clave, valor) values (fa, 'arca_razon_social', 'Razón A');
+    update public.familia_config set valor = '20000000009' where familia_id = fb and clave = 'arca_cuit';
     get diagnostics n = row_count;
     if n <> 1 then raise exception 'FALLA: el superadmin no pudo editar la configuración de B'; end if;
     ok := array_append(ok, 'superadmin: escribe la configuración de cualquier familia');
+
+    begin
+      insert into public.familia_config (familia_id, clave, valor) values (fa, 'monotributo_limite_categoria_b', '1.400.000');
+      raise exception 'FALLA: se guardó un número mal escrito';
+    exception when check_violation then null;
+    end;
+    begin
+      insert into public.familia_config (familia_id, clave, valor) values (fa, '__no_existe', 'x');
+      raise exception 'FALLA: se guardó una clave que no está en el catálogo';
+    exception when foreign_key_violation then null;
+    end;
+    begin
+      update public.config_catalogo set valor_default = 'x' where clave = '__test_numero';
+      get diagnostics n = row_count;
+      if n <> 0 then raise exception 'FALLA: el superadmin cambió el catálogo desde la app'; end if;
+    end;
+    ok := array_append(ok, 'superadmin: la configuración se valida por tipo y contra el catálogo, que no se edita desde la app');
 
     -- admin_miembros(): ve los emails de los miembros de todas las familias
     select count(*) into n from public.admin_miembros()
@@ -378,14 +427,14 @@ begin
       'centros', jsonb_build_array(jsonb_build_object('id', nuevo, 'familia_id', fa, 'codigo', 'R', 'nombre', 'Restaurado')),
       'movimientos', jsonb_build_array(jsonb_build_object('id', mov_a, 'familia_id', fa, 'fecha', current_date,
         'centro_id', cen_a, 'egreso', 100, 'detalle', 'restaurado')),
-      'configuracion', jsonb_build_array(jsonb_build_object('familia_id', fa, 'clave', 'arca_cuit', 'valor', '20111111111'))));
-    if resultado <> '{"centros": 1, "movimientos": 1, "configuracion": 1}'::jsonb then
+      'familia_config', jsonb_build_array(jsonb_build_object('familia_id', fa, 'clave', 'arca_cuit', 'valor', '20111111111'))));
+    if resultado <> '{"centros": 1, "movimientos": 1, "familia_config": 1}'::jsonb then
       raise exception 'FALLA: restaurar_familia() devolvió %', resultado;
     end if;
     if (select detalle from public.movimientos where id = mov_a) is distinct from 'restaurado'
        or (select tarjeta from public.movimientos where id = mov_a) is distinct from false
        or not exists (select 1 from public.centros where id = nuevo and familia_id = fa)
-       or (select valor from public.configuracion where familia_id = fa and clave = 'arca_cuit') <> '20111111111' then
+       or (select valor from public.familia_config where familia_id = fa and clave = 'arca_cuit') <> '20111111111' then
       raise exception 'FALLA: restaurar_familia() no aplicó bien los cambios';
     end if;
     ok := array_append(ok, 'superadmin: restaurar_familia() agrega y actualiza por id');

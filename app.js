@@ -21,6 +21,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   // (la elegida en el selector); un usuario sin familia no ve la app.
   esSuperadmin:false, soloLectura:false, sinFamilia:false, familias:[], familiaSeleccionadaId:null,
   adminMiembros:[], adminMiembrosError:null, backupArchivo:null, backupFamiliaRestaurar:'',
+  configCatalogo:[], configMsg:null,
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -339,13 +340,16 @@ function fromDbFactura(r){
   };
 }
 function fromDbConfiguracion(r){ return {clave:r.clave, valor:r.valor}; }
+function fromDbConfigCatalogo(r){
+  return {clave:r.clave, tipo:r.tipo, descripcion:r.descripcion||'', valorDefault:r.valor_default, grupo:r.grupo||'', orden:Number(r.orden)||0};
+}
 
 // ---- CRUD genérico contra Supabase ----
 // Tablas con datos de cada familia. Un miembro no necesita filtrar (RLS ya le devuelve solo lo de su
 // familia, y familia_id lo completa la base al insertar); el superadmin ve todas, así que acá se
 // filtra por la familia elegida en el selector.
 var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-  'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'configuracion'];
+  'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config'];
 
 // opciones.todasLasFamilias: sin filtrar por la familia elegida (backup global del superadmin).
 async function dbFetchAll(table, ordenarPor, opciones){
@@ -475,9 +479,15 @@ async function cargarTodo(){
     // Idem: si todavía no corriste migracion_facturacion_arca.sql, arranca vacío en vez de romper la carga.
     var facturas = await dbFetchAll('facturas');
     STATE.facturas = facturas.map(fromDbFactura);
-    var configuracion = await dbFetchAll('configuracion');
-    STATE.configuracion = configuracion.map(fromDbConfiguracion);
-  }catch(e){ STATE.facturas = []; STATE.configuracion = []; }
+  }catch(e){ STATE.facturas = []; }
+  // Configuración (D3): el catálogo (global, con los defaults) + lo que la familia tiene distinto.
+  // configuracionValor() combina las dos.
+  var configCatalogo = await dbFetchAll('config_catalogo');
+  STATE.configCatalogo = configCatalogo.map(fromDbConfigCatalogo).sort(function(a, b){
+    return a.grupo.localeCompare(b.grupo) || (a.orden - b.orden) || a.clave.localeCompare(b.clave);
+  });
+  var configuracion = await dbFetchAll('familia_config');
+  STATE.configuracion = configuracion.map(fromDbConfiguracion);
 }
 
 // ===================== AUTENTICACIÓN =====================
@@ -518,7 +528,7 @@ async function elegirFamilia(familiaId){
   try{ localStorage.setItem('controlFamiliaSuperadmin', familiaId); }catch(e){}
   STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false};
   STATE.editing = null; STATE.movSeleccionados = []; STATE.movPaginaActual = 1; STATE.reglasPaginaActual = 1;
-  STATE.incompletosSnapshotIds = null; STATE.dbError = null;
+  STATE.incompletosSnapshotIds = null; STATE.dbError = null; STATE.configMsg = null;
   STATE.ready = false;
   render();
   try{
@@ -690,9 +700,29 @@ function facturaEmitidaDeMovimiento(movId){
 function esVentaUsdtFacturable(m){
   return esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !facturaEmitidaDeMovimiento(m.id);
 }
+// Valor efectivo de una configuración: el de la familia o, si no tiene, el default del catálogo
+// (igual que config_valor() en la base).
 function configuracionValor(clave){
   var row = STATE.configuracion.find(function(c){ return c.clave===clave; });
-  return row ? row.valor : null;
+  if(row) return row.valor;
+  var item = (STATE.configCatalogo||[]).find(function(c){ return c.clave===clave; });
+  return item && item.valorDefault!=null ? item.valorDefault : null;
+}
+// Mismo criterio que valor_config_valido() en schema.sql.
+function valorConfigValido(tipo, valor){
+  if(tipo==='numero') return /^-?[0-9]+(\.[0-9]+)?$/.test(valor);
+  if(tipo==='booleano') return valor==='true' || valor==='false';
+  return true;
+}
+// Solo el superadmin (S4): guarda el valor de una familia, o lo borra (vuelve al default) si viene vacío.
+// No pasa por dbInsert/dbUpsert a propósito: el superadmin está en solo lectura para los datos, no para esto.
+async function guardarConfigFamilia(familiaId, clave, valor){
+  var res = valor===''
+    ? await sb.from('familia_config').delete().eq('familia_id', familiaId).eq('clave', clave)
+    : await sb.from('familia_config').upsert({ familia_id: familiaId, clave: clave, valor: valor }, { onConflict: 'familia_id,clave' });
+  if(res && res.error) throw res.error;
+  STATE.configuracion = STATE.configuracion.filter(function(c){ return c.clave!==clave; });
+  if(valor!=='') STATE.configuracion.push({ clave: clave, valor: valor });
 }
 function limiteCategoriaB(){
   var v = configuracionValor('monotributo_limite_categoria_b');
@@ -1975,6 +2005,42 @@ function fmtFechaHora(iso){
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-AR');
 }
 
+// Configuración de la familia elegida en el selector (solo superadmin; la familia no la ve, C1).
+// Un campo vacío = usa el default del catálogo.
+function renderConfigFamilia(){
+  var familia = STATE.familias.find(function(f){ return f.id===STATE.familiaSeleccionadaId; });
+  if(!familia) return '';
+  var msgHtml = STATE.configMsg ? '<div class="msg '+(STATE.configMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.configMsg.text)+'</div>' : '';
+  var html = '';
+  var grupoActual = null;
+  STATE.configCatalogo.forEach(function(item){
+    if(item.grupo!==grupoActual){
+      grupoActual = item.grupo;
+      html += '<h3 style="margin-top:14px">'+esc(item.grupo)+'</h3>';
+    }
+    var propio = STATE.configuracion.find(function(c){ return c.clave===item.clave; });
+    var valor = propio ? propio.valor : '';
+    var porDefecto = item.valorDefault!=null ? 'Default: '+item.valorDefault : 'Sin valor por defecto';
+    var control = item.tipo==='booleano'
+      ? '<select id="cfg-'+esc(item.clave)+'"><option value="">'+esc(porDefecto)+'</option>'+
+          '<option value="true"'+(valor==='true'?' selected':'')+'>Sí</option>'+
+          '<option value="false"'+(valor==='false'?' selected':'')+'>No</option></select>'
+      : '<input type="text"'+(item.tipo==='numero'?' inputmode="decimal"':'')+' id="cfg-'+esc(item.clave)+'" value="'+esc(valor)+'" placeholder="'+esc(porDefecto)+'" style="width:260px">';
+    html += '<div class="fields-row" style="align-items:flex-end;margin-bottom:10px">'+
+      '<div class="field"><label>'+esc(item.clave)+(propio?'':' <span style="color:var(--ink-soft);font-weight:normal">(usa el default)</span>')+'</label>'+control+
+        '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;max-width:420px">'+esc(item.descripcion)+'</div></div>'+
+      '<div class="field"><button data-action="config-guardar" data-id="'+esc(item.clave)+'">Guardar</button></div>'+
+      (propio ? '<div class="field"><button class="secondary" data-action="config-default" data-id="'+esc(item.clave)+'">Usar default</button></div>' : '')+
+    '</div>';
+  });
+  return '<div class="card">'+
+    '<h2>Configuración de '+esc(familia.nombre)+'</h2>'+
+    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Valores de la familia elegida arriba. Vacío = usa el default. La familia no ve esta pantalla. Las claves nuevas se agregan en <code>schema.sql</code>.</div>'+
+    msgHtml+
+    (STATE.configCatalogo.length ? html : '<div class="empty">El catálogo de configuración está vacío.</div>')+
+  '</div>';
+}
+
 // Pestaña Administración (solo superadmin): familias, miembros, backup global y restauración por familia.
 // Las altas se hacen por script (scripts/sql/alta_*.sql): acá solo se muestran.
 function renderAdministracion(){
@@ -2021,6 +2087,7 @@ function renderAdministracion(){
       ? '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Email</th><th>Familia</th><th>Alta</th></tr></thead><tbody>'+filasMiembros+'</tbody></table></div>'
       : (STATE.adminMiembrosError ? '' : '<div class="empty">Todavía no hay miembros.</div>'))+
   '</div>'+
+  renderConfigFamilia()+
   '<div class="card">'+
     '<h2>Descargar backup</h2>'+
     '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Genera un archivo con <strong>todas las familias</strong>: familias, miembros y sus datos (Centros, Categorías, Subcategorías, Movimientos, Vencimientos, Deudas, USDT, Facturas, Reglas y Configuración).</div>'+
@@ -4727,8 +4794,10 @@ var ACCIONES_LECTURA = ['mov-pagina-anterior', 'mov-pagina-siguiente', 'ir-a-ven
   'actualizar-cotizacion-usdt', 'actualizar-dolar-blue', 'toggle-usdt-opcionales',
   'toggle-menu-movil', 'cerrar-menu-movil', 'toggle-menu-usuario', 'set-tema-color', 'toggle-tema', 'cerrar-sesion',
   // Administración (solo superadmin)
-  'descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado'];
-var ACCIONES_SUPERADMIN = ['descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado'];
+  'descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado',
+  'config-guardar', 'config-default'];
+var ACCIONES_SUPERADMIN = ['descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado',
+  'config-guardar', 'config-default'];
 
 async function handleAction(action, id){
   if(STATE.soloLectura && ACCIONES_LECTURA.indexOf(action)===-1) return;
@@ -5059,6 +5128,22 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='cancelar-restaurar'){ STATE.backupArchivo = null; STATE.backupMsg = null; render(); return; }
+
+  // ---- CONFIGURACIÓN DE LA FAMILIA (superadmin) ----
+  if(action==='config-guardar' || action==='config-default'){
+    var itemCfg = STATE.configCatalogo.find(function(c){ return c.clave===id; });
+    if(!itemCfg || !STATE.familiaSeleccionadaId){ render(); return; }
+    var valorCfg = action==='config-default' ? '' : String((document.getElementById('cfg-'+id)||{}).value||'').trim();
+    if(valorCfg!=='' && !valorConfigValido(itemCfg.tipo, valorCfg)){
+      STATE.configMsg = { type:'err', text:'"'+valorCfg+'" no es un valor válido para '+id+(itemCfg.tipo==='numero' ? ' (tiene que ser un número, con punto decimal y sin separador de miles).' : '.') };
+      render(); return;
+    }
+    try{
+      await guardarConfigFamilia(STATE.familiaSeleccionadaId, id, valorCfg);
+      STATE.configMsg = { type:'ok', text: valorCfg==='' ? id+': vuelve a usar el default.' : id+' guardado.' };
+    }catch(e){ STATE.configMsg = { type:'err', text:'No se pudo guardar '+id+': '+(e.message||e) }; }
+    render(); return;
+  }
   if(action==='restaurar-familia'){
     if(!STATE.backupArchivo){ render(); return; }
     STATE.backupFamiliaRestaurar = (document.getElementById('backup-familia')||{}).value || STATE.backupFamiliaRestaurar;
