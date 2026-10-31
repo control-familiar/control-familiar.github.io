@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { loadApp } from './helpers/loadApp.js';
+import { prenderTodo } from './helpers/fixtures.js';
 
 let win;
-beforeEach(() => { win = loadApp(); });
+beforeEach(() => { win = loadApp(); prenderTodo(win); });
 
 describe('acumuladoFacturado12Meses', () => {
   it('suma solo las facturas emitidas dentro de los 12 meses móviles hasta la fecha de referencia', () => {
@@ -23,6 +24,18 @@ describe('acumuladoFacturado12Meses', () => {
 });
 
 describe('esVentaUsdtFacturable', () => {
+  it('no es facturable si Facturación ARCA está apagada, o si está prendida pero USDT no', () => {
+    win.STATE.categorias = [{ id: 'c1', nombre: 'Ingresos' }];
+    win.STATE.subcategorias = [{ id: 's1', categoriaId: 'c1', nombre: 'Venta USDT' }];
+    win.STATE.facturas = [];
+    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    win.STATE.configuracion = [{ clave: 'feature.facturacion_arca', valor: 'false' }];
+    expect(win.esVentaUsdtFacturable(mov)).toBe(false);
+    win.STATE.configuracion = [{ clave: 'feature.usdt', valor: 'false' }];
+    expect(win.funcionActiva('facturacion_arca')).toBe(false);
+    expect(win.esVentaUsdtFacturable(mov)).toBe(false);
+  });
+
   beforeEach(() => {
     win.STATE.categorias = [{ id: 'c1', nombre: 'Ingresos' }];
     win.STATE.subcategorias = [{ id: 's1', categoriaId: 'c1', nombre: 'Venta USDT' }, { id: 's2', categoriaId: 'c1', nombre: 'Otra' }];

@@ -128,6 +128,13 @@ from familias f, (values
 ) as r(proveedor, categoria, subcategoria)
 where f.nombre = 'Familia Demo';
 
+-- Familia Demo con todas las funciones opcionales prendidas, para ver la app completa
+-- (Familia Prueba queda con todo apagado, el default).
+insert into familia_config (familia_id, clave, valor)
+select f.id, c.clave, 'true'
+from familias f, config_catalogo c
+where f.nombre = 'Familia Demo' and c.clave like 'feature.%';
+
 -- ---------- Familia Prueba (casi vacía) ----------
 
 insert into centros (familia_id, codigo, nombre, entidad)

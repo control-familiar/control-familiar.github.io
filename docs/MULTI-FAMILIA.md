@@ -63,17 +63,36 @@ la primera familia real, pasar a probar en local (`supabase start`, requiere Doc
 
 | Base común (siempre está) | Opcional (se activa por familia) |
 |---|---|
-| Resumen, Movimientos, Vencimientos, Saldos, Importar, ABM (categorías, centros, reglas) | USDT · Dólares · Flujo de Caja/Deudas · Facturación ARCA · Tarjetas y cuotas · Regla de "sueldo de fin de mes" |
+| Resumen, Movimientos, Vencimientos, Saldos, Importar, ABM (categorías, centros, reglas) | USDT · Dólares · Flujo de Caja/Deudas · Facturación ARCA · Tarjetas y cuotas · Regla de "sueldo de fin de mes" (configurable en días) |
 
 - **Backup**: no es una función de familia; es exclusivo del superadmin.
 - **Gimnasio** (el "bonus track" del original): **no existe en este proyecto** (G1). Se sacaron la tabla, la pestaña y el
   código; los commits del original que lo toquen hay que adaptarlos al hacer cherry-pick.
 - Una función opcional apagada **se oculta y no se cargan sus datos**, pero no se borra nada.
+- Cada una es una clave booleana del catálogo, grupo "Funciones": `feature.usdt`, `feature.dolares`,
+  `feature.flujo_caja`, `feature.facturacion_arca`, `feature.tarjetas`. **Por defecto apagadas** (O1): una
+  familia nueva arranca con la base común y el soporte prende lo que necesite en Administración → Configuración.
+  En `app.js`, `funcionActiva('usdt')`.
+- Qué se oculta con cada una apagada:
+  - **USDT**: pestaña, valuación del USDT en Resumen y Saldos, botón "generar movimiento USDT"; no se carga
+    `usdt_movimientos` ni se pide la cotización.
+  - **Dólares**: pestaña, saldos en USD (Saldos, Resumen, Flujo), campo Moneda del ABM de centros (se conserva
+    el valor); los movimientos en USD no se muestran; no se pide el dólar blue.
+  - **Flujo de Caja**: pestaña; no se carga `deudas`.
+  - **Facturación ARCA**: botón Facturar, comprobantes, tarjeta "Facturado a ARCA"; no se carga `facturas`.
+    **Depende de USDT** (O3): sin USDT queda apagada aunque su clave esté prendida.
+  - **Tarjetas**: tilde/marca/cuotas del formulario, agrupado por resumen en Movimientos y Vencimientos, filtro
+    "Solo tarjeta", campo de la edición masiva, opción "Tarjeta de Crédito" en Importar. Los movimientos de
+    tarjeta se ven como comunes y, al editarlos, conservan sus datos de tarjeta.
+- **Regla del sueldo de fin de mes** (O2): clave numérica `sueldo_dias_mes_siguiente` (grupo "Reglas"): los
+  ingresos de Sueldo de los últimos N días del mes cuentan para el mes siguiente. 0 (default) = regla apagada.
+  En el original era fija en 3.
+- El superadmin ve cada familia con sus funciones, tal como la ve ella (O5).
 - **Facturación ARCA** (D8): por ahora queda resuelta solo para una familia (el certificado vive en los
-  secrets de la Edge Function, uno por proyecto). Si una familia la tiene activada pero le faltan CUIT /
-  razón social / certificado, ve un mensaje del tipo *"Antes de facturar tenés que configurar tus datos de
-  facturación"* y no se intenta facturar. Certificado por familia (ej. Supabase Vault) queda para cuando
-  alguna lo pida.
+  secrets de la Edge Function, uno por proyecto). Si una familia la tiene prendida pero le falta el CUIT o la
+  razón social, al tocar Facturar ve *"Antes de facturar, el soporte tiene que cargar tus datos de facturación
+  (CUIT y razón social)"* y no se intenta facturar; el superadmin ve el mismo aviso en la configuración de la
+  familia (O4). Certificado por familia (ej. Supabase Vault) queda para cuando alguna lo pida.
 
 ## Configuración por familia (D3)
 
@@ -314,8 +333,8 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
 | 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | ✅ hecho |
 | 3 | Personas y titulares (D5) | pendiente |
-| 4 | Catálogo de configuración + valores por familia (D3) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
-| 5 | Funciones activables (D4) | pendiente |
+| 4 | Catálogo de configuración + valores por familia (D3) | ✅ hecho |
+| 5 | Funciones activables (D4) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
 | 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | pendiente |
 | 7 | Importadores en la base + ocultos por familia (D7) | pendiente |
 | 8 | Documentación (README, guías) y scripts de alta definitivos | pendiente |
@@ -366,6 +385,11 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | K2 | Tipos de configuración | Texto con `tipo`; control según tipo en la pantalla + trigger que valida en la base |
 | K3 | Catálogo inicial | Las 3 claves del original, mismos nombres, sin default |
 | K4 | Backups con la tabla vieja `configuracion` | Esa parte se ignora al restaurar |
+| O1 | Default de las funciones opcionales | Apagadas; Familia Demo con todas prendidas, Familia Prueba con ninguna |
+| O2 | Regla del sueldo de fin de mes | Una clave numérica `sueldo_dias_mes_siguiente`; 0 = apagada |
+| O3 | Facturación sin USDT | Queda apagada (factura ventas de USDT) |
+| O4 | Aviso de D8 | A la familia al tocar Facturar; al superadmin en la configuración |
+| O5 | Qué ve el superadmin | Cada familia con sus funciones, como la ve ella |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

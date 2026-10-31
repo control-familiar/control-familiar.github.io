@@ -447,6 +447,15 @@ async function restaurarFamilia(datos, familiaId){
 }
 
 async function cargarTodo(){
+  // Configuración (D3) primero: el catálogo (global, con los defaults) + lo que la familia tiene distinto
+  // (configuracionValor() combina las dos). Define qué funciones opcionales están prendidas.
+  var configCatalogo = await dbFetchAll('config_catalogo');
+  STATE.configCatalogo = configCatalogo.map(fromDbConfigCatalogo).sort(function(a, b){
+    return a.grupo.localeCompare(b.grupo) || (a.orden - b.orden) || a.clave.localeCompare(b.clave);
+  });
+  var configuracion = await dbFetchAll('familia_config');
+  STATE.configuracion = configuracion.map(fromDbConfiguracion);
+
   var [centros, categorias, subcategorias, movimientos, vencimientos] = await Promise.all([
     dbFetchAll('centros'), dbFetchAll('categorias'), dbFetchAll('subcategorias'), dbFetchAll('movimientos', 'created_at'), dbFetchAll('vencimientos')
   ]);
@@ -458,14 +467,16 @@ async function cargarTodo(){
   // dólares como si fueran pesos. Los en USD se ven y se editan desde la pestaña Dólares.
   var todosLosMovs = movimientos.map(fromDbMovimiento);
   STATE.movimientos = todosLosMovs.filter(function(m){ return m.moneda!=='USD'; });
-  STATE.movimientosUsd = todosLosMovs.filter(function(m){ return m.moneda==='USD'; });
+  // Con Dólares apagada, los movimientos en USD no se muestran en ningún lado.
+  STATE.movimientosUsd = funcionActiva('dolares') ? todosLosMovs.filter(function(m){ return m.moneda==='USD'; }) : [];
   STATE.vencimientos = vencimientos.map(fromDbVencimiento);
-  try{
+  STATE.usdtMovimientos = []; STATE.deudas = []; STATE.facturas = [];
+  if(funcionActiva('usdt')) try{
     // Try/catch aparte: si todavía no corriste migracion_usdt.sql, arranca vacío en vez de romper la carga.
     var usdtMovimientos = await dbFetchAll('usdt_movimientos');
     STATE.usdtMovimientos = usdtMovimientos.map(fromDbUsdt);
   }catch(e){ STATE.usdtMovimientos = []; }
-  try{
+  if(funcionActiva('flujo_caja')) try{
     // Idem: si todavía no corriste migracion_deudas.sql, arranca vacío en vez de romper la carga.
     var deudas = await dbFetchAll('deudas');
     STATE.deudas = deudas.map(fromDbDeuda);
@@ -475,19 +486,11 @@ async function cargarTodo(){
     var reglas = await dbFetchAll('reglas_categorizacion');
     STATE.reglas = reglas.map(fromDbRegla);
   }catch(e){ STATE.reglas = []; }
-  try{
+  if(funcionActiva('facturacion_arca')) try{
     // Idem: si todavía no corriste migracion_facturacion_arca.sql, arranca vacío en vez de romper la carga.
     var facturas = await dbFetchAll('facturas');
     STATE.facturas = facturas.map(fromDbFactura);
   }catch(e){ STATE.facturas = []; }
-  // Configuración (D3): el catálogo (global, con los defaults) + lo que la familia tiene distinto.
-  // configuracionValor() combina las dos.
-  var configCatalogo = await dbFetchAll('config_catalogo');
-  STATE.configCatalogo = configCatalogo.map(fromDbConfigCatalogo).sort(function(a, b){
-    return a.grupo.localeCompare(b.grupo) || (a.orden - b.orden) || a.clave.localeCompare(b.clave);
-  });
-  var configuracion = await dbFetchAll('familia_config');
-  STATE.configuracion = configuracion.map(fromDbConfiguracion);
 }
 
 // ===================== AUTENTICACIÓN =====================
@@ -560,8 +563,8 @@ async function mostrarApp(){
   render();
   // La app abre en Resumen, que valúa el USDT de sueldo sin vender a la cotización de hoy:
   // traerla de entrada igual que cuando se entra a la pestaña con un clic.
-  if((STATE.activeTab==='usdt' || STATE.activeTab==='resumen' || STATE.activeTab==='saldos' || STATE.activeTab==='flujo') && STATE.usdtCotizacionBid===null && !STATE.usdtCotizacionCargando) obtenerCotizacionUsdt();
-  if((STATE.activeTab==='dolares' || STATE.activeTab==='resumen' || STATE.activeTab==='saldos' || STATE.activeTab==='flujo') && STATE.dolarBlueCompra===null && !STATE.dolarBlueCargando) obtenerDolarBlue();
+  if(funcionActiva('usdt') && (STATE.activeTab==='usdt' || STATE.activeTab==='resumen' || STATE.activeTab==='saldos' || STATE.activeTab==='flujo') && STATE.usdtCotizacionBid===null && !STATE.usdtCotizacionCargando) obtenerCotizacionUsdt();
+  if(funcionActiva('dolares') && (STATE.activeTab==='dolares' || STATE.activeTab==='resumen' || STATE.activeTab==='saldos' || STATE.activeTab==='flujo') && STATE.dolarBlueCompra===null && !STATE.dolarBlueCargando) obtenerDolarBlue();
 }
 
 function mostrarLogin(msg){
@@ -621,7 +624,7 @@ function usdtVinculadoAMovimiento(movId){
   return STATE.usdtMovimientos.some(function(u){ return u.movimientoId===movId; });
 }
 function esVentaUsdtPendiente(m){
-  return esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !usdtVinculadoAMovimiento(m.id);
+  return funcionActiva('usdt') && esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !usdtVinculadoAMovimiento(m.id);
 }
 // "Venta USDT" es una categoría propia. Por compatibilidad también se reconoce la forma anterior
 // (subcategoría "Venta USDT" dentro de Sueldo), hasta que se corra migracion_venta_usdt_categoria.sql.
@@ -698,7 +701,7 @@ function facturaEmitidaDeMovimiento(movId){
   return STATE.facturas.find(function(f){ return f.movimientoId===movId && f.estado==='emitida' && f.ambiente==='produccion'; }) || null;
 }
 function esVentaUsdtFacturable(m){
-  return esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !facturaEmitidaDeMovimiento(m.id);
+  return funcionActiva('facturacion_arca') && esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !facturaEmitidaDeMovimiento(m.id);
 }
 // Valor efectivo de una configuración: el de la familia o, si no tiene, el default del catálogo
 // (igual que config_valor() en la base).
@@ -714,6 +717,22 @@ function valorConfigValido(tipo, valor){
   if(tipo==='booleano') return valor==='true' || valor==='false';
   return true;
 }
+// Funciones opcionales (D4): claves booleanas "feature.*" del catálogo, apagadas por defecto. Apagada =
+// se oculta y no se cargan sus datos (no se borra nada). Facturación ARCA factura ventas de USDT, así que
+// sin USDT queda apagada aunque su clave esté prendida.
+var FUNCIONES_OPCIONALES = ['usdt', 'dolares', 'flujo_caja', 'facturacion_arca', 'tarjetas'];
+function funcionActiva(nombre){
+  if(nombre==='facturacion_arca' && !funcionActiva('usdt')) return false;
+  return configuracionValor('feature.'+nombre)==='true';
+}
+// Movimiento con tarjeta a los efectos de mostrarlo como tal (agrupado por resumen, ícono): con la
+// función Tarjetas apagada se ve como uno común, aunque en la base siga marcado.
+function esTarjeta(m){ return !!(m && m.tarjeta) && funcionActiva('tarjetas'); }
+// Facturación prendida pero sin los datos del emisor (D8): no se intenta facturar.
+function faltanDatosFacturacion(){
+  return !configuracionValor('arca_cuit') || !configuracionValor('arca_razon_social');
+}
+
 // Solo el superadmin (S4): guarda el valor de una familia, o lo borra (vuelve al default) si viene vacío.
 // No pasa por dbInsert/dbUpsert a propósito: el superadmin está en solo lectura para los datos, no para esto.
 async function guardarConfigFamilia(familiaId, clave, valor){
@@ -801,15 +820,17 @@ function abrirComprobante(factura){
   );
   w.document.close();
 }
-// El sueldo de Franco se acredita unos días antes de fin de mes: para que en el Resumen cuente en el
-// mes al que en realidad corresponde (y no en el que se acredita), los últimos 3 días de cada mes se
-// consideran ya del mes siguiente a los efectos de "a qué mes pertenece el Sueldo".
+// Si el sueldo se acredita unos días antes de fin de mes, para que en el Resumen cuente en el mes al
+// que en realidad corresponde (y no en el que se acredita), los últimos N días de cada mes se consideran
+// ya del mes siguiente a los efectos de "a qué mes pertenece el Sueldo". N es la configuración
+// sueldo_dias_mes_siguiente de la familia; 0 o vacío = la regla está apagada.
 function mesEfectivoSueldo(fechaISO){
   var m = (fechaISO||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(!m) return (fechaISO||'').slice(0,7);
+  var diasMesSiguiente = Math.max(0, parseInt(configuracionValor('sueldo_dias_mes_siguiente'),10)||0);
   var y = parseInt(m[1],10), mes = parseInt(m[2],10), dia = parseInt(m[3],10);
   var ultimoDiaMes = new Date(y, mes, 0).getDate();
-  if(dia <= ultimoDiaMes - 3) return m[1]+'-'+m[2];
+  if(dia <= ultimoDiaMes - diasMesSiguiente) return m[1]+'-'+m[2];
   var sig = new Date(y, mes, 1); // "mes" (1-indexado) usado como índice 0-indexado de Date = el mes siguiente
   return sig.getFullYear()+'-'+pad2(sig.getMonth()+1);
 }
@@ -1633,10 +1654,14 @@ function renderInterno(){
     {id:'importar', label:'Importar', icono:'bi-cloud-arrow-down', separadorAntes:true},
     {id:'abm', label:'ABM', icono:'bi-gear'}
   ];
+  // Pestañas de funciones opcionales: solo si la familia las tiene prendidas.
+  var funcionDeTab = { usdt:'usdt', dolares:'dolares', flujo:'flujo_caja' };
+  tabs = tabs.filter(function(t){ return !funcionDeTab[t.id] || funcionActiva(funcionDeTab[t.id]); });
   if(STATE.esSuperadmin){
     tabs = tabs.filter(function(t){ return t.id!=='importar'; });
     tabs.push({id:'admin', label:'Administración', icono:'bi-shield-lock', separadorAntes:true});
   }
+  if(!tabs.some(function(t){ return t.id===STATE.activeTab; })) STATE.activeTab = 'resumen';
 
   var sidebarHtml = '<div class="sidebar'+(STATE.menuMovilAbierto?' abierto':'')+'">'+
     '<div class="masthead"><span class="masthead-mark"><i class="bi bi-piggy-bank"></i></span><h1>Control</h1><div class="tagline">Control económico<br>datos compartidos</div></div>'+
@@ -1848,15 +1873,18 @@ function campoCentro(codigo, nombre, color, entidad, moneda){
     '<div class="field"><label>Entidad</label><select id="f-centro-entidad">'+
       ENTIDADES.map(function(e){ return '<option value="'+e.id+'"'+(e.id===(entidad||'')?' selected':'')+'>'+e.label+'</option>'; }).join('')+
     '</select></div>'+
-    '<div class="field"><label>Moneda</label><select id="f-centro-moneda">'+
-      MONEDAS_CENTRO.map(function(m){ return '<option value="'+m.id+'"'+(m.id===(moneda||'ARS')?' selected':'')+'>'+m.label+'</option>'; }).join('')+
-    '</select></div>';
+    // Con Dólares apagada no se muestra, pero se conserva la moneda que tenía el centro.
+    (funcionActiva('dolares')
+      ? '<div class="field"><label>Moneda</label><select id="f-centro-moneda">'+
+          MONEDAS_CENTRO.map(function(m){ return '<option value="'+m.id+'"'+(m.id===(moneda||'ARS')?' selected':'')+'>'+m.label+'</option>'; }).join('')+
+        '</select></div>'
+      : '<input type="hidden" id="f-centro-moneda" value="'+esc(moneda||'ARS')+'">');
 }
 function renderCentros(){
   var rows = STATE.centros.map(function(c){
     return '<tr><td data-label="Código">'+renderChip(c.codigo, colorCentro(c.id), colorTextoCentro(c.id))+'</td><td data-label="Nombre">'+esc(c.nombre)+'</td>'+
       '<td data-label="Entidad">'+logoEntidadHtml(c)+'</td>'+
-      '<td data-label="Moneda">'+MONEDAS_CENTRO.find(function(m){ return m.id===monedaCentro(c); }).label+'</td>'+
+      (funcionActiva('dolares') ? '<td data-label="Moneda">'+MONEDAS_CENTRO.find(function(m){ return m.id===monedaCentro(c); }).label+'</td>' : '')+
       '<td class="actions-cell"><button class="link" data-action="edit-centro" data-id="'+c.id+'">editar</button>'+
       '<button class="link" data-action="del-centro" data-id="'+c.id+'">borrar</button></td></tr>';
   }).join('');
@@ -1884,7 +1912,7 @@ function renderCentros(){
   return formNuevoCentro +
   '<div class="card">'+
     '<h3>Centros de costo cargados</h3>'+
-    (STATE.centros.length ? '<table class="table tabla-movil"><thead><tr><th>Código</th><th>Nombre</th><th>Entidad</th><th>Moneda</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún centro de costo.</div>')+
+    (STATE.centros.length ? '<table class="table tabla-movil"><thead><tr><th>Código</th><th>Nombre</th><th>Entidad</th>'+(funcionActiva('dolares')?'<th>Moneda</th>':'')+'<th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún centro de costo.</div>')+
   '</div>';
 }
 
@@ -2011,6 +2039,11 @@ function renderConfigFamilia(){
   var familia = STATE.familias.find(function(f){ return f.id===STATE.familiaSeleccionadaId; });
   if(!familia) return '';
   var msgHtml = STATE.configMsg ? '<div class="msg '+(STATE.configMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.configMsg.text)+'</div>' : '';
+  // Avisos de combinaciones que dejan Facturación ARCA sin funcionar (D8)
+  var avisos = [];
+  if(configuracionValor('feature.facturacion_arca')==='true' && !funcionActiva('usdt')) avisos.push('Facturación ARCA está prendida pero USDT no: sin USDT no se factura.');
+  if(funcionActiva('facturacion_arca') && faltanDatosFacturacion()) avisos.push('Facturación ARCA está prendida pero faltan el CUIT o la razón social: la familia no va a poder facturar.');
+  var avisosHtml = avisos.map(function(a){ return '<div class="msg err">'+esc(a)+'</div>'; }).join('');
   var html = '';
   var grupoActual = null;
   STATE.configCatalogo.forEach(function(item){
@@ -2036,7 +2069,7 @@ function renderConfigFamilia(){
   return '<div class="card">'+
     '<h2>Configuración de '+esc(familia.nombre)+'</h2>'+
     '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Valores de la familia elegida arriba. Vacío = usa el default. La familia no ve esta pantalla. Las claves nuevas se agregan en <code>schema.sql</code>.</div>'+
-    msgHtml+
+    msgHtml+avisosHtml+
     (STATE.configCatalogo.length ? html : '<div class="empty">El catálogo de configuración está vacío.</div>')+
   '</div>';
 }
@@ -2249,7 +2282,7 @@ function celdasEditablesMov(m){
       categoriasOrdenadas().map(function(c){ return '<option value="'+c.id+'" '+(m.categoriaId===c.id?'selected':'')+'>'+esc(c.nombre)+'</option>'; }).join('')+
       '</select></td>',
     subcategoria: '<td data-label="Subcategoría"><select data-mov-id="'+m.id+'" data-field="subcategoriaId"><option value="">—</option>'+subOpcionesFila+'</select></td>',
-    proveedor: '<td data-label="Contraparte">'+(m.tarjeta?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+'<input type="text" data-mov-id="'+m.id+'" data-field="proveedor" value="'+esc(m.proveedor||'')+'" style="width:100%;box-sizing:border-box"></td>',
+    proveedor: '<td data-label="Contraparte">'+(esTarjeta(m)?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+'<input type="text" data-mov-id="'+m.id+'" data-field="proveedor" value="'+esc(m.proveedor||'')+'" style="width:100%;box-sizing:border-box"></td>',
     detalle: '<td data-label="Detalle"><input type="text" data-mov-id="'+m.id+'" data-field="detalle" value="'+esc(m.detalle||'')+'" style="width:100%;box-sizing:border-box"></td>'
   };
 }
@@ -2263,7 +2296,7 @@ function celdasSoloLecturaMov(m){
     centro: '<td'+(m.centroId?' class="celda-filtrable" data-filter-field="centro" data-filter-value="'+esc(m.centroId)+'" title="Filtrar por este Centro de Costo"':'')+' data-label="Centro">'+(m.centroId?renderChip(nombreCentro(m.centroId).split(' · ')[0], colorCentro(m.centroId), colorTextoCentro(m.centroId)):'—')+'</td>',
     categoria: '<td'+(m.categoriaId?' class="celda-filtrable" data-filter-field="categoria" data-filter-value="'+esc(m.categoriaId)+'" title="Filtrar por esta Categoría"':'')+' data-label="Categoría">'+(m.categoriaId?renderChip(nombreCategoria(m.categoriaId), colorCategoria(m.categoriaId), colorTextoCategoria(m.categoriaId)):'—')+'</td>',
     subcategoria: '<td class="celda-filtrable" data-filter-field="subcategoria" data-filter-value="'+esc(subValorFiltro)+'" title="Filtrar por esta Subcategoría" data-label="Subcategoría">'+esc(nombreSubcategoria(m.subcategoriaId))+'</td>',
-    proveedor: '<td'+(m.proveedor?' class="celda-filtrable" data-filter-field="texto" data-filter-value="'+esc(m.proveedor)+'" title="Filtrar por esta Contraparte"':'')+' data-label="Contraparte">'+(m.tarjeta?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+esc(m.proveedor||'')+'</td>',
+    proveedor: '<td'+(m.proveedor?' class="celda-filtrable" data-filter-field="texto" data-filter-value="'+esc(m.proveedor)+'" title="Filtrar por esta Contraparte"':'')+' data-label="Contraparte">'+(esTarjeta(m)?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+esc(m.proveedor||'')+'</td>',
     detalle: '<td data-label="Detalle">'+esc(m.detalle||'')+'</td>'
   };
 }
@@ -2302,7 +2335,7 @@ function renderBulkEditMovModal(){
       '<div class="field"><label>Monto</label><input type="number" step="0.01" id="bem-monto" placeholder="— Sin cambios —"></div>'+
     '</div>'+
     '<div class="form-grid">'+
-      '<div class="field"><label>Tarjeta</label><select id="bem-tarjeta"><option value="">— Sin cambios —</option><option value="si">Marcar</option><option value="no">Desmarcar</option></select></div>'+
+      (funcionActiva('tarjetas') ? '<div class="field"><label>Tarjeta</label><select id="bem-tarjeta"><option value="">— Sin cambios —</option><option value="si">Marcar</option><option value="no">Desmarcar</option></select></div>' : '')+
     '</div>'+
     '<div style="margin-top:16px;display:flex;gap:10px">'+
     '<button data-action="guardar-bulk-edit-mov">Aplicar a '+n+' movimiento(s)</button>'+
@@ -2330,7 +2363,7 @@ function movimientosFiltrados(f){
       if(idsCongelados){ if(idsCongelados.indexOf(m.id)===-1) return false; }
       else if(camposFaltantes(m).length===0){ return false; }
     }
-    if(f.soloTarjeta && !m.tarjeta) return false;
+    if(f.soloTarjeta && funcionActiva('tarjetas') && !m.tarjeta) return false;
     if(f.texto){
       var t = f.texto.toLowerCase();
       if((m.proveedor||'').toLowerCase().indexOf(t)===-1 && (m.detalle||'').toLowerCase().indexOf(t)===-1) return false;
@@ -2426,7 +2459,7 @@ function renderMovimientos(){
   var gruposTarjetaMap = {};
   var vista = [];
   lista.forEach(function(m){
-    if(!agruparTarjeta || !m.tarjeta){ vista.push({tipo:'mov', mov:m}); return; }
+    if(!agruparTarjeta || !esTarjeta(m)){ vista.push({tipo:'mov', mov:m}); return; }
     var clave = 'mov-tarjeta|'+m.fecha+'|'+(m.centroId||'')+'|'+(m.tarjetaMarca||'');
     var g = gruposTarjetaMap[clave];
     if(!g){
@@ -2555,7 +2588,7 @@ function renderMovimientos(){
     } else {
       textoAyudaCuotas = 'La Fecha de arriba se toma como vencimiento de la 1ª cuota. Se van a crear '+cuotasNum+' movimientos, uno por mes, con este mismo monto cada uno.';
     }
-    var campoCuotas = e.tarjeta ? ''+
+    var campoCuotas = (e.tarjeta && funcionActiva('tarjetas')) ? ''+
       '<div class="form-section">'+
         '<div class="form-section-title"><i class="bi bi-credit-card"></i> Tarjeta de crédito</div>'+
         '<div class="form-grid">'+
@@ -2599,9 +2632,9 @@ function renderMovimientos(){
         '</select></div>'+
         '<div class="'+claseCampo('monto')+'"><label>Monto</label><input type="number" step="0.01" id="f-mov-monto" value="'+esc(e.monto)+'">'+msgCampo('monto')+'</div>'+
       '</div>'+
-      '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;margin-top:14px">'+
+      (funcionActiva('tarjetas') ? '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;margin-top:14px">'+
         '<input type="checkbox" id="f-mov-tarjeta" '+(e.tarjeta?'checked':'')+' style="width:auto"> <i class="bi bi-credit-card"></i> Pagado con tarjeta de crédito'+
-      '</label>'+
+      '</label>' : '')+
       campoCuotas;
   }
 
@@ -2656,9 +2689,9 @@ function renderMovimientos(){
       '<div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;white-space:nowrap;padding:7px 0">'+
         '<input type="checkbox" id="ff-solo-incompletos" '+(f.soloIncompletos?'checked':'')+' style="width:auto"> Solo incompletos ('+cantidadIncompletos+')'+
       '</label></div>'+
-      '<div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;white-space:nowrap;padding:7px 0">'+
+      (funcionActiva('tarjetas') ? '<div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;white-space:nowrap;padding:7px 0">'+
         '<input type="checkbox" id="ff-solo-tarjeta" '+(f.soloTarjeta?'checked':'')+' style="width:auto"> <i class="bi bi-credit-card"></i> Solo tarjeta'+
-      '</label></div>'+
+      '</label></div>' : '')+
       (f.soloIncompletos ? '<div class="field"><label>&nbsp;</label><button class="secondary" data-action="refrescar-incompletos" style="font-size:12px;padding:6px 12px"><i class="bi bi-arrow-clockwise"></i> Actualizar lista</button></div>' : '')+
     '</div>')+
   '</div>';
@@ -2698,6 +2731,7 @@ function renderMovimientos(){
 
 // ===================== IMPORTAR =====================
 function renderImportar(){
+  if(STATE.importEntidad==='tarjeta' && !funcionActiva('tarjetas')) STATE.importEntidad = 'mp';
   var e = STATE.importEntidad || 'mp';
   var msgHtml = STATE.importMsg ? '<div class="msg '+(STATE.importMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.importMsg.text)+'</div>' : '';
 
@@ -2726,7 +2760,7 @@ function renderImportar(){
         '<option value="santander" '+(e==='santander'?'selected':'')+'>Santander</option>'+
         '<option value="nacion" '+(e==='nacion'?'selected':'')+'>Nación</option>'+
         '<option value="provincia" '+(e==='provincia'?'selected':'')+'>Provincia</option>'+
-        '<option value="tarjeta" '+(e==='tarjeta'?'selected':'')+'>Tarjeta de Crédito</option>'+
+        (funcionActiva('tarjetas') ? '<option value="tarjeta" '+(e==='tarjeta'?'selected':'')+'>Tarjeta de Crédito</option>' : '')+
         '<option value="excel" '+(e==='excel'?'selected':'')+'>Excel histórico (ya categorizado)</option>'+
       '</select></div>'+
       subFieldsHtml+
@@ -2970,7 +3004,7 @@ function renderVencimientos(){
       '<td class="mono" data-label="Vence">'+diasTxt+'</td>'+
       '<td class="mono" data-label="Centro">'+esc(nombreCentro(m.centroId)).split(' · ')[0]+'</td>'+
       '<td data-label="Categoría">'+esc(nombreCategoria(m.categoriaId))+'</td>'+
-      '<td data-label="Contraparte">'+(m.tarjeta?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+esc(m.proveedor||'')+'</td>'+
+      '<td data-label="Contraparte">'+(esTarjeta(m)?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+esc(m.proveedor||'')+'</td>'+
       '<td data-label="Detalle">'+esc(m.detalle||'')+'</td>'+
       '<td class="num ingreso" data-label="Ingreso">'+(Number(m.ingreso)?fmtMonto(m.ingreso):'')+'</td>'+
       '<td class="num egreso" data-label="Egreso">'+(Number(m.egreso)?fmtMonto(m.egreso):'')+'</td>'+
@@ -2981,8 +3015,8 @@ function renderVencimientos(){
 
   // De los pendientes con tarjeta, agrupar por Fecha + Centro (la cuenta desde la que se paga esa tarjeta)
   // para ver de un vistazo el total a pagar de cada resumen, con el detalle desplegable.
-  var pendientesTarjeta = pendientesMov.filter(function(m){ return !!m.tarjeta; });
-  var pendientesOtros = pendientesMov.filter(function(m){ return !m.tarjeta; });
+  var pendientesTarjeta = pendientesMov.filter(esTarjeta);
+  var pendientesOtros = pendientesMov.filter(function(m){ return !esTarjeta(m); });
   var gruposTarjetaMap = {}, gruposTarjetaOrden = [];
   pendientesTarjeta.forEach(function(m){
     var clave = m.fecha+'|'+(m.centroId||'');
@@ -3141,7 +3175,7 @@ function renderSaldos(){
   '</div>';
 
   var sUsd = calcularSaldosUsd();
-  var tablaUsd = (sUsd.filas.length || sUsd.saldoSinCentro!==0) ? '<div class="card">'+
+  var tablaUsd = funcionActiva('dolares') && (sUsd.filas.length || sUsd.saldoSinCentro!==0) ? '<div class="card">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:4px">'+
       '<h3 style="margin-bottom:0">Saldo en dólares</h3>'+
       '<div class="mono" style="font-weight:600">'+fmtUsd(sUsd.totalGeneral)+(STATE.dolarBlueCompra?' <span style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ $'+fmtMonto(sUsd.totalGeneral*STATE.dolarBlueCompra)+' (blue)</span>':'')+'</div>'+
@@ -3517,14 +3551,14 @@ function renderResumen(){
   var valorUsdtArs = STATE.usdtCotizacionBid ? saldoUsdtCant*STATE.usdtCotizacionBid : null;
   var tenenciaUsd = calcularSaldosUsd().totalGeneral;
   var valorUsdArs = STATE.dolarBlueCompra ? tenenciaUsd*STATE.dolarBlueCompra : null;
-  var hayDolares = STATE.movimientosUsd.length>0 || STATE.centros.some(centroAdmiteDolares);
+  var hayDolares = funcionActiva('dolares') && (STATE.movimientosUsd.length>0 || STATE.centros.some(centroAdmiteDolares));
   var capAhorro = capacidadAhorroPromedio('6m');
   var estadoActualHtml = '<div class="card">'+
     '<h3>Estado actual</h3>'+
     '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">La foto de hoy — no depende de los filtros de abajo.</div>'+
     '<div class="summary-cards">'+
       '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-bank"></i></div><div class="label">Saldo total (Saldos)</div><div class="value">'+fmtMonto(saldosGlobal.totalGeneral)+'</div></div>'+
-      '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-coin"></i></div><div class="label">Tenencia USDT</div><div class="value">'+fmtCantidadUsdt(saldoUsdtCant)+' USDT'+(valorUsdtArs!==null?'<div class="mono" style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ '+fmtMonto(valorUsdtArs)+'</div>':'')+'</div></div>'+
+      (funcionActiva('usdt') ? '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-coin"></i></div><div class="label">Tenencia USDT</div><div class="value">'+fmtCantidadUsdt(saldoUsdtCant)+' USDT'+(valorUsdtArs!==null?'<div class="mono" style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ '+fmtMonto(valorUsdtArs)+'</div>':'')+'</div></div>' : '')+
       (hayDolares ? '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-currency-dollar"></i></div><div class="label">Tenencia dólares</div><div class="value">'+fmtUsd(tenenciaUsd)+(valorUsdArs!==null?'<div class="mono" style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ '+fmtMonto(valorUsdArs)+' (blue)</div>':'')+'</div></div>' : '')+
       '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-piggy-bank"></i></div><div class="label">Ahorro promedio / mes</div><div class="value">'+(capAhorro?fmtMonto(capAhorro.promedio):'—')+'</div>'+(capAhorro?'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">últimos 6 meses cerrados, sin '+esc(etiquetaInversion())+'</div>':'')+'</div>'+
     '</div>'+
@@ -4337,7 +4371,7 @@ function renderUsdt(){
         (STATE.usdtCotizacionError ? '<div style="color:var(--danger);margin-top:2px">'+esc(STATE.usdtCotizacionError)+'</div>' : '')+
       '</div>'+
     '</div>'+
-    (limiteCategoriaB()>0 ? '<div class="summary-card"><div class="label">Facturado a ARCA (últimos 12 meses)</div><div class="value">$'+fmtMonto(acumuladoFacturado12Meses(STATE.facturas.filter(function(f){return f.ambiente==='produccion';}), fechaHoyISO()))+' / $'+fmtMonto(limiteCategoriaB())+'</div></div>' : '')+
+    (funcionActiva('facturacion_arca') && limiteCategoriaB()>0 ? '<div class="summary-card"><div class="label">Facturado a ARCA (últimos 12 meses)</div><div class="value">$'+fmtMonto(acumuladoFacturado12Meses(STATE.facturas.filter(function(f){return f.ambiente==='produccion';}), fechaHoyISO()))+' / $'+fmtMonto(limiteCategoriaB())+'</div></div>' : '')+
   '</div>'+
   formHtml+
   '<div class="card">'+
@@ -4372,9 +4406,9 @@ function bindEvents(){
       render();
       // Primera vez que se entra a USDT (o a Resumen/Saldos/Flujo, que valúan a la cotización de hoy el USDT de
       // sueldo todavía sin vender) en esta sesión: traer la cotización sola, sin que haya que tocar "Actualizar".
-      if((tabId==='usdt' || tabId==='resumen' || tabId==='saldos' || tabId==='flujo') && STATE.usdtCotizacionBid===null && !STATE.usdtCotizacionCargando) obtenerCotizacionUsdt();
+      if(funcionActiva('usdt') && (tabId==='usdt' || tabId==='resumen' || tabId==='saldos' || tabId==='flujo') && STATE.usdtCotizacionBid===null && !STATE.usdtCotizacionCargando) obtenerCotizacionUsdt();
       // Idem el dólar blue, que valúa la tenencia en USD (Dólares, Saldos y la foto de Resumen).
-      if((tabId==='dolares' || tabId==='resumen' || tabId==='saldos' || tabId==='flujo') && STATE.dolarBlueCompra===null && !STATE.dolarBlueCargando) obtenerDolarBlue();
+      if(funcionActiva('dolares') && (tabId==='dolares' || tabId==='resumen' || tabId==='saldos' || tabId==='flujo') && STATE.dolarBlueCompra===null && !STATE.dolarBlueCargando) obtenerDolarBlue();
     });
   });
 
@@ -4767,7 +4801,7 @@ function getEfectivoFormValues(){
 }
 
 function getMovFormValues(){
-  return {
+  var v = {
     fecha: (document.getElementById('f-mov-fecha')||{}).value || '',
     centroId: (document.getElementById('f-mov-centro')||{}).value || '',
     categoriaId: (document.getElementById('f-mov-categoria')||{}).value || '',
@@ -4782,6 +4816,17 @@ function getMovFormValues(){
     cuotas: (document.getElementById('f-mov-cuotas')||{}).value || 1,
     cuotasInfo: (document.getElementById('f-mov-cuotas-info')||{}).value || ''
   };
+  // Con Tarjetas apagada el formulario no muestra esos campos: al editar se conservan los que ya tenía
+  // el movimiento (si no, guardarlo lo desmarcaría como de tarjeta).
+  if(!funcionActiva('tarjetas')){
+    var original = STATE.editing && STATE.editing.type==='mov' ? STATE.movimientos.find(function(m){ return m.id===STATE.editing.id; }) : null;
+    v.tarjeta = !!(original && original.tarjeta);
+    v.fechaConsumo = original ? (original.fechaConsumo||'') : '';
+    v.tarjetaMarca = original ? (original.tarjetaMarca||'') : '';
+    v.cuotas = 1;
+    v.cuotasInfo = original ? (original.cuotas||'') : '';
+  }
+  return v;
 }
 
 // Acciones que no escriben en la base: las únicas que tiene el superadmin (solo lectura, S1). Cualquier
@@ -5140,6 +5185,7 @@ async function handleAction(action, id){
     }
     try{
       await guardarConfigFamilia(STATE.familiaSeleccionadaId, id, valorCfg);
+      if(id.indexOf('feature.')===0){ await cargarTodo(); STATE.saldosDirty = true; }
       STATE.configMsg = { type:'ok', text: valorCfg==='' ? id+': vuelve a usar el default.' : id+' guardado.' };
     }catch(e){ STATE.configMsg = { type:'err', text:'No se pudo guardar '+id+': '+(e.message||e) }; }
     render(); return;
@@ -5804,6 +5850,10 @@ async function handleAction(action, id){
   if(action==='facturar-mov'){
     var movAFacturar = STATE.movimientos.find(function(x){return x.id===id;});
     if(!movAFacturar) return;
+    if(faltanDatosFacturacion()){
+      STATE.dbError = 'Antes de facturar, el soporte tiene que cargar tus datos de facturación (CUIT y razón social).';
+      render(); return;
+    }
     STATE.confirmState = {
       message: '¿Emitir factura ARCA por $'+fmtMonto(movAFacturar.ingreso)+' a Consumidor Final?',
       action: 'facturar-mov-do', id: id, destructivo: false, textoConfirmar: 'Sí, facturar'

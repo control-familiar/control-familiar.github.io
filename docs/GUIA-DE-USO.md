@@ -56,11 +56,13 @@ Al crear una categoría elegís su **Tratamiento en reportes**. Es la decisión 
 - **Movimientos** — listado, alta, edición, filtros, exportación.
 - **Vencimientos** — pagos pendientes y movimientos con fecha futura.
 - **Saldos** — plata actual por cuenta.
-- **Flujo de Caja** — proyección de ahorro y deudas.
-- **USDT** — tenencia y ventas de USDT.
-- **Dólares** — compras/ventas de dólares y saldos en USD.
+- **Flujo de Caja** — proyección de ahorro y deudas. *(opcional)*
+- **USDT** — tenencia y ventas de USDT. *(opcional)*
+- **Dólares** — compras/ventas de dólares y saldos en USD. *(opcional)*
 - **Importar** — carga masiva desde resúmenes de bancos.
 - **ABM** — categorías, subcategorías, centros de costo y reglas.
+
+Las marcadas *(opcional)*, igual que Facturación ARCA y Tarjetas y cuotas, aparecen solo si están activadas para tu familia. Las activa el soporte.
 
 ## 4. Configuración inicial (ABM)
 

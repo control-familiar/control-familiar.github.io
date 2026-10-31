@@ -296,6 +296,27 @@ insert into config_catalogo (clave, tipo, descripcion, valor_default, grupo, ord
    'Tope de facturación de los últimos 12 meses para la categoría de Monotributo, en pesos. Vacío: no se controla.',
    null, 'Facturación', 3);
 
+-- Funciones opcionales (D4): apagadas por defecto; las prende el superadmin para cada familia.
+-- Apagada = la app la oculta y no carga sus datos (no se borra nada).
+insert into config_catalogo (clave, tipo, descripcion, valor_default, grupo, orden) values
+  ('feature.usdt', 'booleano',
+   'USDT: pestaña de tenencia y ventas de USDT, y su valuación en Resumen y Saldos.', 'false', 'Funciones', 1),
+  ('feature.dolares', 'booleano',
+   'Dólares: pestaña de compras y ventas de dólares, centros en dólares y saldos en USD.', 'false', 'Funciones', 2),
+  ('feature.flujo_caja', 'booleano',
+   'Flujo de Caja: pestaña de proyección de ahorro y deudas.', 'false', 'Funciones', 3),
+  ('feature.facturacion_arca', 'booleano',
+   'Facturación ARCA de las ventas de USDT. Necesita USDT prendido y el CUIT y la razón social cargados.', 'false', 'Funciones', 4),
+  ('feature.tarjetas', 'booleano',
+   'Tarjetas y cuotas: movimientos con tarjeta agrupados por resumen, cuotas, filtro e importación de resúmenes de tarjeta.',
+   'false', 'Funciones', 5);
+
+-- Reglas que antes estaban fijas en el código (D6).
+insert into config_catalogo (clave, tipo, descripcion, valor_default, grupo, orden) values
+  ('sueldo_dias_mes_siguiente', 'numero',
+   'Sueldo de fin de mes: los ingresos de Sueldo de los últimos N días del mes cuentan en el Resumen para el mes siguiente. 0: cuentan en su mes.',
+   '0', 'Reglas', 1);
+
 -- Caché del Token+Sign de WSAA (dura ~12hs; pedir uno nuevo antes de que expire el
 -- anterior hace que ARCA lo rechace). La usa la Edge Function facturar-arca con la
 -- sesión del usuario, así que cada familia tiene el suyo.
