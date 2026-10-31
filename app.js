@@ -5,7 +5,7 @@ var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 
 var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
   importEntidad:'mp', importBanco:'nacion', importVencimiento:'', importTarjetaMarca:'', importRaw:'', importPreview:null, importPreviewExcel:null, importMsg:null,
-  bulkColorCatMsg:null, confirmState:null, subDeleteState:null, vencPagarState:null, movFormMsg:null, movFieldErrors:null,
+  bulkColorCatMsg:null, bulkColorCatAbierto:false, confirmState:null, subDeleteState:null, vencPagarState:null, movFormMsg:null, movFieldErrors:null,
   filtros:{centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false},
   resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
   vencFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
@@ -2213,6 +2213,17 @@ function renderCategorias(){
         '<button class="secondary" data-action="cancel-edit">Cancelar</button>'+
       '</div>'+
     '</div></div>';
+  } else if(STATE.bulkColorCatAbierto){
+    MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card modal-card-lg">'+
+      '<h2>Actualizar colores en masa</h2>'+
+      bulkColorMsgHtml+
+      '<div class="field"><label>Pegá "Nombre" + tab + "Color" (hex, ej #FDE68A) por línea. También podés pegar directamente la fila "Categoría / Color sugerido / Hex" tal cual, usa la última columna. Solo actualiza categorías que ya existen (por nombre, sin importar mayúsculas); no crea categorías nuevas.</label>'+
+      '<textarea id="bulk-colores-categorias" rows="8" style="width:100%;font-family:\'Geist Mono\',ui-monospace,Consolas,monospace;font-size:12px" placeholder="Comida\tDurazno\t#FED7AA"></textarea></div>'+
+      '<div class="fields-row" style="margin-top:14px">'+
+        '<button data-action="bulk-actualizar-colores-categorias">Actualizar colores</button>'+
+        '<button class="secondary" data-action="cancel-edit">Cerrar</button>'+
+      '</div>'+
+    '</div></div>';
   }
 
   var formNuevaCategoria = editing ? '' : ''+
@@ -2226,14 +2237,10 @@ function renderCategorias(){
 
   return formNuevaCategoria +
   '<div class="card">'+
-    '<h3>Actualizar colores en masa</h3>'+
-    bulkColorMsgHtml+
-    '<div class="field"><label>Pegá "Nombre" + tab + "Color" (hex, ej #FDE68A) por línea. También podés pegar directamente la fila "Categoría / Color sugerido / Hex" tal cual, usa la última columna. Solo actualiza categorías que ya existen (por nombre, sin importar mayúsculas); no crea categorías nuevas.</label>'+
-    '<textarea id="bulk-colores-categorias" rows="8" style="width:100%;font-family:\'Geist Mono\',ui-monospace,Consolas,monospace;font-size:12px" placeholder="Comida\tDurazno\t#FED7AA"></textarea></div>'+
-    '<div class="fields-row" style="margin-top:10px"><button data-action="bulk-actualizar-colores-categorias">Actualizar colores</button></div>'+
-  '</div>'+
-  '<div class="card">'+
-    '<h3>Categorías cargadas</h3>'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<h3 style="margin:0">Categorías cargadas</h3>'+
+      (STATE.categorias.length ? '<button class="secondary" data-action="abrir-bulk-colores-categorias" style="font-size:12px;padding:6px 12px"><i class="bi bi-palette"></i> Actualizar colores en masa</button>' : '')+
+    '</div>'+
     (STATE.categorias.length ? '<table class="table tabla-movil"><thead><tr><th>Nombre</th><th>Tipo</th><th>Subcategorías</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ninguna categoría.</div>')+
   '</div>';
 }
@@ -4941,6 +4948,11 @@ async function handleAction(action, id){
     STATE.bulkEditMovAbierto = false; STATE.bulkEditMovMsg = null;
     STATE.usdtFormMsg = null; STATE.movFieldErrors = null;
     STATE.dolaresDraft = null; STATE.dolaresFormMsg = null;
+    STATE.bulkColorCatAbierto = false; STATE.bulkColorCatMsg = null;
+    render(); return;
+  }
+  if(action==='abrir-bulk-colores-categorias'){
+    STATE.editing = null; STATE.bulkColorCatAbierto = true; STATE.bulkColorCatMsg = null;
     render(); return;
   }
   if(action==='abrir-nuevo-mov'){
