@@ -12,15 +12,15 @@ Guía para quien administra la app: levantar una base nueva, publicar, dar usuar
 ## 1. Base de datos nueva
 
 1. Crear un proyecto en [Supabase](https://supabase.com).
-2. En **SQL Editor → New query**, pegar todo [`schema.sql`](../schema.sql) y ejecutar. Crea tablas, políticas de seguridad (RLS) y datos iniciales; ya incluye todas las migraciones.
-3. Poner la URL y la clave *anon* del proyecto en las primeras líneas de `app.js` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), y la misma `SUPABASE_URL` en `scripts/backup-a-drive/backup.js`.
-
-Para una base **ya en uso**, aplicar solo las migraciones faltantes de [`migrations/`](../migrations), en orden. Al cambiar el esquema: migración nueva **y** reflejarla en `schema.sql`.
+2. En **SQL Editor → New query**, pegar todo [`schema.sql`](../schema.sql) y ejecutar. Crea tablas, funciones y políticas de seguridad (RLS) multi-familia, sin datos.
+3. Dar de alta familias y usuarios con los scripts de [`scripts/sql/`](../scripts/sql) y correr los tests de [`test/sql/seguridad.sql`](../test/sql/seguridad.sql). Orden completo en [MULTI-FAMILIA.md → Puesta en marcha de la base](MULTI-FAMILIA.md#puesta-en-marcha-de-la-base).
+4. Poner la URL y la clave *anon* del proyecto en las primeras líneas de `app.js` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), y la misma `SUPABASE_URL` en `scripts/backup-a-drive/backup.js`.
 
 ## 2. Usuarios y seguridad
 
 - En Supabase: **Authentication → Users → Add user** (email y contraseña) para cada persona.
-- **Deshabilitar el signup público** (Authentication → Settings). Las políticas RLS dan acceso total a *cualquier* cuenta autenticada: sin esto, cualquiera que se registre vería todos los datos.
+- Asignar cada usuario a su familia con [`scripts/sql/alta_miembro.sql`](../scripts/sql/alta_miembro.sql): un usuario que no es miembro de ninguna familia entra y no ve nada.
+- **Deshabilitar el signup público** (Authentication → Settings). Una cuenta sin familia no ve datos, pero no tiene sentido dejar que cualquiera se cree una.
 - El CC de efectivo por defecto y la persona del Gimnasio se resuelven por email (`codigoCentroPorUsuario` y `personaPorUsuario` en `app.js`); para usuarios nuevos hay que agregarlos ahí.
 
 ## 3. Publicación (GitHub Pages)

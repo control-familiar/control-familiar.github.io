@@ -22,7 +22,9 @@ describe('Backup: tablas incluidas', () => {
   it('incluye todas las tablas del schema salvo arca_ta (token temporal)', () => {
     const win = loadApp();
     const schema = readFileSync(path.join(ROOT, 'schema.sql'), 'utf8');
-    const tablasSchema = [...schema.matchAll(/create table (\w+)/g)].map(m => m[1]).filter(t => t !== 'arca_ta');
+    // familias/miembros/superadmins: el backup global del superadmin (fase 2, ver docs/MULTI-FAMILIA.md) las va a sumar
+    const fueraDelBackup = ['arca_ta', 'familias', 'miembros', 'superadmins'];
+    const tablasSchema = [...schema.matchAll(/create table (\w+)/g)].map(m => m[1]).filter(t => !fueraDelBackup.includes(t));
     expect([...win.TABLAS_BACKUP].sort()).toEqual(tablasSchema.sort());
   });
 });

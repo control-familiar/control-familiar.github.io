@@ -202,6 +202,8 @@ create policy borrar  on <tabla> for delete using (familia_id = (select familia_
 - `superadmins`: cada uno lee solo su fila (para que la app sepa si es superadmin).
 - Tablas globales (`config_catalogo`, `importadores`): leen todos los logueados; escribe el superadmin.
 - `familia_config`, `familia_importadores_ocultos`: lee la familia y el superadmin; escribe **solo** el superadmin (S4).
+  Hasta la fase 4 lo mismo vale para la tabla `configuracion` del original, que sigue con `familia_id` (P1).
+- `arca_ta`: solo la familia; el superadmin **no** la ve (son credenciales temporales de ARCA) (P3).
 - Usuario sin familia y que no es superadmin: no ve nada.
 
 ### Peligros conocidos y cómo se cubren
@@ -218,7 +220,11 @@ create policy borrar  on <tabla> for delete using (familia_id = (select familia_
 
 ### Tests de seguridad
 
-Tests SQL (pgTAP, `supabase test db`) con dos familias y un superadmin que verifiquen:
+[`test/sql/seguridad.sql`](../test/sql/seguridad.sql) (P6): SQL plano que se pega en el SQL Editor, como se
+aplicaba todo en el original. Crea sus propios usuarios y familias, cambia de usuario con `set local role
+authenticated` + `request.jwt.claims` (como la API de Supabase) y deshace todo al final, así que se puede correr
+contra el proyecto con las familias dummy cargadas. Devuelve la lista de chequeos en "ok" o corta con
+"FALLA: ...". Verifica, con dos familias, un superadmin, un usuario sin familia y anon:
 - un miembro de A no ve / crea / edita / borra nada de B;
 - no se puede insertar con el `familia_id` de otra familia;
 - un movimiento de A no puede apuntar a categoría/centro de B;
@@ -230,6 +236,29 @@ Tests SQL (pgTAP, `supabase test db`) con dos familias y un superadmin que verif
 - **"Familia Demo"**: movimientos, categorías y centros inventados, para ver la app funcionando.
 - **"Familia Prueba"**: casi vacía, para probar el aislamiento entre familias.
 
+Se cargan con [`scripts/sql/datos_dummy.sql`](../scripts/sql/datos_dummy.sql) (fechas relativas al mes actual).
+Usuarios: `anitacasadei+demo@gmail.com` y `anitacasadei+prueba@gmail.com` (alias de Gmail de Ana), creados a mano
+y asignados con `alta_miembro.sql`.
+
+## Puesta en marcha de la base
+
+En el SQL Editor del proyecto, en este orden:
+
+1. [`schema.sql`](../schema.sql) (base vacía).
+2. [`scripts/sql/datos_dummy.sql`](../scripts/sql/datos_dummy.sql).
+3. Crear los usuarios en Authentication → Users y correr
+   [`alta_miembro.sql`](../scripts/sql/alta_miembro.sql) por cada uno
+   ([`alta_familia.sql`](../scripts/sql/alta_familia.sql) y
+   [`alta_superadmin.sql`](../scripts/sql/alta_superadmin.sql) para familias nuevas y soporte).
+4. [`test/sql/seguridad.sql`](../test/sql/seguridad.sql).
+
+Los scripts de alta tienen las variables arriba de todo (bloque `DO`), validan (usuario inexistente, familia
+inexistente, ya es miembro de otra, es superadmin) y terminan con una consulta de verificación (P4, P5).
+
+Mientras haya solo familias dummy, los cambios de esquema se hacen en `schema.sql` y la base se recrea. Desde la
+fase 9, cada cambio va como migración nueva en `migrations/` **y** en `schema.sql`, como en el original (P7).
+`migrations/historico/` son las del original, solo como registro.
+
 Los datos iniciales del original (centros, reglas de categorización, CUIT/razón social de Ana) **no** van en
 `schema.sql` de este proyecto.
 
@@ -240,7 +269,7 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | # | Contenido | Estado |
 |---|---|---|
 | 0 | Fork, Pages, Supabase nuevo, apuntar la app al proyecto nuevo y rutas relativas | ✅ hecho |
-| 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | pendiente |
+| 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
 | 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | pendiente |
 | 3 | Personas y titulares (D5) | pendiente |
 | 4 | Catálogo de configuración + valores por familia (D3) | pendiente |
@@ -257,7 +286,8 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 - **Configuración visible para la familia**: ¿la ve en el ABM en solo lectura, o no la ve? (propuesta: la ve en
   solo lectura).
 - **Email de la cuenta superadmin** (hace falta para la fase 2).
-- **Tests de seguridad en GitHub Actions** además de local (propuesta: sí, agrega ~2–3 min por push).
+- **Tests de seguridad en GitHub Actions** además de a mano en el SQL Editor (propuesta: sí, levantando Supabase
+  local en el runner, que tiene Docker; agrega ~2–3 min por push).
 - **Restauración por el superadmin**: como no puede escribir datos por RLS, la restauración por familia necesita
   un camino propio (función `security definer` que valide la familia, o script con service role).
 - **Supabase Auth → Site URL** = la URL de Pages (para los links de los mails).
@@ -281,6 +311,14 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | N3 | Creación de usuarios | A mano en Supabase + script de asignación |
 | N4 | Botón de backup | Solo superadmin, descarga todas |
 | N5 | FK compuestas | Sí |
+| P1 | Tabla `configuracion` en la fase 1 | Se queda con `familia_id`, PK `(familia_id, clave)`; la escribe solo el superadmin; la reemplaza la fase 4 |
+| P2 | `gimnasio_visitas.persona` | Queda como en el original (`'ana','franco'`): Gimnasio se va a deprecar en este proyecto |
+| P3 | `arca_ta` | El superadmin no la ve |
+| P4 | Parámetros de los scripts de alta | Bloque `DO` con variables arriba, validaciones y verificación final |
+| P5 | Cómo se identifican en los scripts | Usuario por email, familia por nombre (`familias.nombre` único) |
+| P6 | Tests de seguridad | SQL plano para el SQL Editor (como en el original), no pgTAP |
+| P7 | Migraciones | Solo `schema.sql` mientras sea dummy; migraciones desde la fase 9 |
+| P8 | Tablas de fases posteriores (`personas`, `familia_config`, …) | Se crean en su fase |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

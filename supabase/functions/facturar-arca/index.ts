@@ -143,7 +143,8 @@ async function obtenerTokenYSign(
   }
   const { token, sign } = await pedirTaNueva(certPem, keyPem, wsaaUrl);
   const expiraEn = new Date(Date.now() + 11 * 60 * 60 * 1000).toISOString(); // TA dura ~12hs; 11 de margen
-  await sb.from("arca_ta").upsert({ ambiente, token, sign, expira_en: expiraEn });
+  // familia_id no se manda: lo completa la base (default familia_actual()) con la sesión del usuario.
+  await sb.from("arca_ta").upsert({ ambiente, token, sign, expira_en: expiraEn }, { onConflict: "familia_id,ambiente" });
   return { token, sign };
 }
 

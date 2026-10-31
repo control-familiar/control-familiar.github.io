@@ -1,53 +1,136 @@
 -- ============================================================
--- ESQUEMA "CONTROL ECONÓMICO" — pegar todo esto en el SQL Editor
--- de Supabase (Project → SQL Editor → New query → Run) para
--- levantar la base desde cero.
+-- ESQUEMA "CONTROL ECONÓMICO FAMILIAR" (multi-familia)
 --
--- Este archivo se mantiene al día con TODAS las migraciones de
--- migrations/*.sql (cada una sigue existiendo por separado como
--- registro histórico de cuándo y por qué se agregó cada cosa).
--- Si agregás una tabla o columna nueva: migración nueva en
--- migrations/ Y reflejarla acá, para que este archivo siga
--- sirviendo para levantar una base nueva de un solo saque.
+-- Pegar todo esto en el SQL Editor de Supabase (Project → SQL
+-- Editor → New query → Run) sobre una base VACÍA para levantarla
+-- desde cero. No trae datos: las familias, miembros y superadmins
+-- se dan de alta con scripts/sql/alta_*.sql, y los datos de
+-- prueba están en scripts/sql/datos_dummy.sql.
+--
+-- Diseño y decisiones: docs/MULTI-FAMILIA.md.
+--
+-- Mientras la base tenga solo familias dummy, los cambios de
+-- esquema se hacen directamente acá y la base se recrea. Desde
+-- que entre la primera familia real, cada cambio va como
+-- migración nueva en migrations/ Y se refleja acá.
+-- migrations/historico/ son las migraciones del proyecto
+-- original (una sola familia), solo como registro.
+-- ============================================================
+
+-- ============================================================
+-- FAMILIAS, MIEMBROS Y SUPERADMINS
+-- ============================================================
+
+create table familias (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,  -- único: los scripts de alta identifican la familia por nombre
+  created_at timestamptz default now()
+);
+
+-- Un usuario pertenece a UNA sola familia (por eso user_id es la PK).
+-- Cambiar a alguien de familia = cambiar su fila; lo que cargó queda en la familia anterior.
+create table miembros (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  familia_id uuid not null references familias(id) on delete restrict,
+  created_at timestamptz default now()
+);
+
+-- Cuentas de soporte: no pertenecen a ninguna familia, ven todas en solo lectura.
+create table superadmins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz default now()
+);
+
+-- Un usuario no puede ser a la vez miembro de una familia y superadmin.
+create function impedir_miembro_y_superadmin() returns trigger
+  language plpgsql set search_path = ''
+as $$
+begin
+  if tg_table_name = 'miembros'
+     and exists (select 1 from public.superadmins where user_id = new.user_id) then
+    raise exception 'El usuario % es superadmin: no puede ser miembro de una familia', new.user_id;
+  end if;
+  if tg_table_name = 'superadmins'
+     and exists (select 1 from public.miembros where user_id = new.user_id) then
+    raise exception 'El usuario % es miembro de una familia: no puede ser superadmin', new.user_id;
+  end if;
+  return new;
+end $$;
+
+create trigger miembros_no_superadmin before insert or update on miembros
+  for each row execute function impedir_miembro_y_superadmin();
+create trigger superadmins_no_miembro before insert or update on superadmins
+  for each row execute function impedir_miembro_y_superadmin();
+
+-- Familia del usuario logueado (null si no es miembro de ninguna).
+-- security definer: lee miembros sin pasar por su RLS. Siempre con search_path vacío
+-- y nombres calificados, para que nadie pueda colarle otra tabla "miembros".
+create function familia_actual() returns uuid
+  language sql stable security definer set search_path = ''
+  as $$ select familia_id from public.miembros where user_id = auth.uid() $$;
+
+create function es_superadmin() returns boolean
+  language sql stable security definer set search_path = ''
+  as $$ select exists(select 1 from public.superadmins where user_id = auth.uid()) $$;
+
+-- ============================================================
+-- DATOS DE CADA FAMILIA
+--
+-- Todas las tablas llevan familia_id, que la base completa sola
+-- con familia_actual(): la app NO lo manda en los insert ni filtra
+-- por familia en los select (RLS ya devuelve solo lo de su familia).
+--
+-- Las tablas que otras referencian tienen unique (familia_id, id)
+-- y todas las FK son compuestas (familia_id, x_id): así una fila de
+-- una familia no puede apuntar a una fila de otra.
+-- "on delete set null (x_id)" vacía solo esa columna, no familia_id.
 -- ============================================================
 
 -- Centros de Costo
 create table centros (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   codigo text not null,
   nombre text not null,
   color text,  -- color de fondo del chip en Movimientos y ABM, ej: '#4E9D77'
   color_texto text,  -- color de texto del chip (opcional); si es null, se calcula el contraste automático
   entidad text,  -- banco/billetera para el logo en Saldos: 'santander' | 'nacion' | 'provincia' | 'icbc' | 'mercadopago' | null
   moneda text not null default 'ARS' check (moneda in ('ARS','USD','AMBAS')),  -- 'AMBAS': la cuenta tiene un saldo en pesos y otro en dólares
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (familia_id, id)
 );
 
 -- Categorías
 create table categorias (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   nombre text not null,
   tipo text,  -- tratamiento en reportes: null (normal) | 'tec' | 'inversion' | 'sueldo' | 'control'
   color text,  -- color de fondo del chip en Movimientos y ABM, ej: '#D97B6C'
   color_texto text,  -- color de texto del chip (opcional); si es null, se calcula el contraste automático
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (familia_id, id)
 );
 
 -- Subcategorías
 create table subcategorias (
   id uuid primary key default gen_random_uuid(),
-  categoria_id uuid references categorias(id) on delete cascade,
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  categoria_id uuid,
   nombre text not null,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (familia_id, id),
+  foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete cascade
 );
 
 -- Movimientos
 create table movimientos (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   fecha date not null,
-  centro_id uuid references centros(id) on delete set null,
-  categoria_id uuid references categorias(id) on delete set null,
-  subcategoria_id uuid references subcategorias(id) on delete set null,
+  centro_id uuid,
+  categoria_id uuid,
+  subcategoria_id uuid,
   proveedor text,
   detalle text,
   ingreso numeric(14,2) default 0,
@@ -58,61 +141,76 @@ create table movimientos (
   cuotas text, -- texto libre, ej. "5/6"
   moneda text not null default 'ARS' check (moneda in ('ARS','USD')),
   cambio_id uuid, -- une las dos patas (USD y pesos) de una compra/venta de dólares
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (familia_id, id),
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id),
+  foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete set null (categoria_id),
+  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id)
 );
 create index movimientos_cambio_id_idx on movimientos(cambio_id);
 
 -- Vencimientos
 create table vencimientos (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   concepto text not null,
   fecha date not null,
   monto numeric(14,2) default 0,
-  centro_id uuid references centros(id) on delete set null,
+  centro_id uuid,
   estado text default 'pendiente', -- 'pendiente' | 'pagado'
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id)
 );
 
--- Gimnasio (bonus track: competencia de perseverancia Ana vs Franco)
+-- Gimnasio (se va a deprecar en este proyecto; queda igual que en el original mientras tanto)
 create table gimnasio_visitas (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   persona text not null check (persona in ('ana','franco')),
   fecha date not null,
   created_at timestamptz default now(),
-  unique (persona, fecha)
+  unique (familia_id, persona, fecha)
 );
 
 -- Deudas (para la pestaña "Flujo de Caja")
 create table deudas (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   concepto text not null,
   saldo_pendiente numeric(14,2) default 0,   -- lo que falta pagar hoy
   cuota_mensual numeric(14,2) default 0,
-  centro_id uuid references centros(id) on delete set null,  -- de dónde sale la cuota (opcional)
+  centro_id uuid,  -- de dónde sale la cuota (opcional)
   estado text default 'activa', -- 'activa' | 'cancelada'
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id)
 );
 
 -- Tenencia de USDT (ingresos y ventas)
 create table usdt_movimientos (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   fecha date not null,
   tipo text not null check (tipo in ('ingreso','venta')),
   cantidad numeric(18,8) not null,              -- USDT (positivo siempre; el signo lo da "tipo")
   monto_ars numeric(14,2),                       -- pesos recibidos, solo en 'venta'
   cotizacion numeric(14,4),                      -- monto_ars / cantidad, solo en 'venta' (informativo)
-  centro_id uuid references centros(id) on delete set null,       -- CC destino de los pesos, solo en 'venta'
-  categoria_id uuid references categorias(id) on delete set null,
-  subcategoria_id uuid references subcategorias(id) on delete set null,
-  movimiento_id uuid references movimientos(id) on delete set null, -- ingreso en pesos creado automáticamente por la venta
+  centro_id uuid,                                -- CC destino de los pesos, solo en 'venta'
+  categoria_id uuid,
+  subcategoria_id uuid,
+  movimiento_id uuid,                            -- ingreso en pesos creado automáticamente por la venta
   detalle text,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id),
+  foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete set null (categoria_id),
+  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id),
+  foreign key (familia_id, movimiento_id) references movimientos(familia_id, id) on delete set null (movimiento_id)
 );
 
 -- Facturación ARCA de ventas de USDT
 create table facturas (
   id uuid primary key default gen_random_uuid(),
-  movimiento_id uuid references movimientos(id) on delete set null,
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  movimiento_id uuid,
   fecha date not null,
   tipo_comprobante text not null default 'C',   -- Factura C (Monotributo, a Consumidor Final)
   punto_venta integer not null,
@@ -124,50 +222,73 @@ create table facturas (
   error text,                                    -- motivo del rechazo (propio o de ARCA), solo si estado='error'
   ambiente text not null default 'homologacion' check (ambiente in ('homologacion','produccion')),
   detalle text,                                  -- ej: "5.2 USDT a $850" (solo informativo, no se envía a ARCA)
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  foreign key (familia_id, movimiento_id) references movimientos(familia_id, id) on delete set null (movimiento_id)
 );
 
 -- Evita facturar dos veces el mismo movimiento EN EL MISMO AMBIENTE (una vez emitida).
 -- Cada ambiente lleva su propia cuenta, para no bloquear producción con algo ya probado en homologación.
+-- No hace falta familia_id: el movimiento ya es de una sola familia.
 create unique index facturas_movimiento_emitida_unq on facturas (movimiento_id, ambiente) where estado = 'emitida';
 
--- Configuración editable de a pares clave/valor: para datos que cambian por normativa
--- (ej. el tope de facturación de la categoría de Monotributo), no por deploy.
+-- Configuración de la familia de a pares clave/valor (tope de Monotributo, CUIT, razón social).
+-- Provisoria: en la fase 4 la reemplazan config_catalogo + familia_config (ver docs/MULTI-FAMILIA.md, D3).
+-- La familia la lee; la modifica solo el superadmin (S4) o un script.
 create table configuracion (
-  clave text primary key,
-  valor text not null
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  clave text not null,
+  valor text not null,
+  primary key (familia_id, clave)
 );
 
 -- Caché del Token+Sign de WSAA (dura ~12hs; pedir uno nuevo antes de que expire el
--- anterior hace que ARCA lo rechace). La usa la Edge Function facturar-arca.
+-- anterior hace que ARCA lo rechace). La usa la Edge Function facturar-arca con la
+-- sesión del usuario, así que cada familia tiene el suyo.
 create table arca_ta (
-  ambiente text primary key check (ambiente in ('homologacion','produccion')),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  ambiente text not null check (ambiente in ('homologacion','produccion')),
   token text not null,
   sign text not null,
-  expira_en timestamptz not null
+  expira_en timestamptz not null,
+  primary key (familia_id, ambiente)
 );
 
 -- Reglas de categorización al importar: proveedor -> categoría/subcategoría sugeridas
 -- al previsualizar una importación (coincidencia parcial, sin distinguir mayúsculas).
 create table reglas_categorizacion (
   id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   proveedor text not null,
   categoria text not null,
   subcategoria text,
   created_at timestamptz default now()
 );
 
+-- Índices por familia_id en las tablas donde no lo cubre ya un unique/PK que empiece por familia_id
+-- (centros, categorias, subcategorias, movimientos, gimnasio_visitas, configuracion, arca_ta).
+create index vencimientos_familia_idx on vencimientos(familia_id);
+create index deudas_familia_idx on deudas(familia_id);
+create index usdt_movimientos_familia_idx on usdt_movimientos(familia_id);
+create index facturas_familia_idx on facturas(familia_id);
+create index reglas_categorizacion_familia_idx on reglas_categorizacion(familia_id);
+create index miembros_familia_idx on miembros(familia_id);
+
 -- ============================================================
--- SEGURIDAD: solo usuarios logueados (vos y tu pareja) pueden
--- leer y escribir. Nadie sin cuenta puede ver ni tocar nada.
+-- SEGURIDAD (RLS)
 --
--- IMPORTANTE: "authenticated" es cualquier cuenta autenticada del
--- proyecto, no solo la tuya y la de tu pareja. Esto solo es seguro
--- si en Authentication → Settings tenés deshabilitado "Allow new
--- users to sign up" (o restringido por dominio/invitación) — si
--- no, cualquiera que se cree una cuenta pasa a tener acceso total.
+-- - Un miembro lee y escribe solo lo de su familia.
+-- - El superadmin lee todas las familias y no escribe datos
+--   (no tiene familia: familia_actual() es null).
+-- - Un usuario logueado que no es miembro ni superadmin no ve nada.
+-- - Sin sesión (anon) no hay ninguna política: no ve nada.
+--
+-- (select f()) en vez de f(): Postgres lo evalúa una vez por
+-- consulta y no una vez por fila.
 -- ============================================================
 
+alter table familias enable row level security;
+alter table miembros enable row level security;
+alter table superadmins enable row level security;
 alter table centros enable row level security;
 alter table categorias enable row level security;
 alter table subcategorias enable row level security;
@@ -181,82 +302,47 @@ alter table configuracion enable row level security;
 alter table arca_ta enable row level security;
 alter table reglas_categorizacion enable row level security;
 
-create policy "logueados_todo_centros" on centros
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+-- familias, miembros, superadmins: solo lectura desde la app (las altas son por script).
+create policy leer on familias for select to authenticated
+  using (id = (select familia_actual()) or (select es_superadmin()));
+create policy leer on miembros for select to authenticated
+  using (user_id = (select auth.uid()) or (select es_superadmin()));
+create policy leer on superadmins for select to authenticated
+  using (user_id = (select auth.uid()));
 
-create policy "logueados_todo_categorias" on categorias
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+-- Tablas de datos: las mismas cuatro políticas en cada una.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
+                           'gimnasio_visitas', 'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion']
+  loop
+    execute format($p$
+      create policy leer on %1$I for select to authenticated
+        using (familia_id = (select familia_actual()) or (select es_superadmin()));
+      create policy insertar on %1$I for insert to authenticated
+        with check (familia_id = (select familia_actual()));
+      create policy editar on %1$I for update to authenticated
+        using (familia_id = (select familia_actual()))
+        with check (familia_id = (select familia_actual()));
+      create policy borrar on %1$I for delete to authenticated
+        using (familia_id = (select familia_actual()));
+    $p$, t);
+  end loop;
+end $$;
 
-create policy "logueados_todo_subcategorias" on subcategorias
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+-- configuracion: la familia la lee; solo el superadmin la escribe (de cualquier familia).
+create policy leer on configuracion for select to authenticated
+  using (familia_id = (select familia_actual()) or (select es_superadmin()));
+create policy insertar on configuracion for insert to authenticated
+  with check ((select es_superadmin()));
+create policy editar on configuracion for update to authenticated
+  using ((select es_superadmin())) with check ((select es_superadmin()));
+create policy borrar on configuracion for delete to authenticated
+  using ((select es_superadmin()));
 
-create policy "logueados_todo_movimientos" on movimientos
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_vencimientos" on vencimientos
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_gimnasio_visitas" on gimnasio_visitas
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_deudas" on deudas
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_usdt_movimientos" on usdt_movimientos
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_facturas" on facturas
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_configuracion" on configuracion
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_arca_ta" on arca_ta
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
-create policy "logueados_todo_reglas_categorizacion" on reglas_categorizacion
-  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
-
--- ============================================================
--- Datos iniciales
--- ============================================================
-
--- Centros de Costo por defecto (los mismos que ya venías usando)
-insert into centros (codigo, nombre) values
-  ('MPF', 'Mercado Pago'),
-  ('BSF', 'Banco Santander'),
-  ('BNF', 'Banco Nación'),
-  ('BPF', 'Banco Provincia');
-
-insert into configuracion (clave, valor) values
-  ('monotributo_limite_categoria_b', '1400000'),
-  ('arca_cuit', '27357665278'),
-  ('arca_razon_social', 'Ana Laura Casadei');
-
--- Reglas de categorización que ya venías usando (antes vivían hardcodeadas en app.js)
-insert into reglas_categorizacion (proveedor, categoria, subcategoria) values
-  ('Barrientos', 'Casa', 'Limpieza'),
-  ('Zuvilivia', 'Comida', 'Carnicería'),
-  ('Melina', 'Comida', 'Verdulería'),
-  ('Rocio Jaqueline Oderda', 'Comida', 'Panadería'),
-  ('Kiosco las flores', 'Salida', 'Kiosco'),
-  ('Rendimientos', 'Intereses', 'Rendimientos'),
-  ('Nahir Aldana Kastelan', 'Emma y Juli', 'Librería'),
-  ('Carina Ines', 'Emma y Juli', 'Pañalera'),
-  ('Macarena', 'Emma y Juli', 'Niñera'),
-  ('Boqon', 'Salida', null),
-  ('Casa oriental', 'Casa', null),
-  ('Claudio Gabriel Valerio', 'Super', null),
-  ('Luis Alberto Aguero', 'Obra', 'Albañil'),
-  ('Francisco Mira', 'Comida', 'Dietética'),
-  ('Mariano Del Valle', 'Comida', 'Pollería'),
-  ('Gustavo Canale', 'Obra', null),
-  ('PEMASYS S. A.', 'Sueldo', 'Maslow'),
-  ('Rendimiento', 'Intereses', null),
-  ('LA ANóNIMA SUC 100', 'Super', null),
-  ('APPYPF 03008 COMBUST', 'Auto', null),
-  ('Spotify', 'Servicios', 'Spotify'),
-  ('IMPUESTO DE SELLOS', 'Servicios', 'Gastos Bancarios'),
-  ('IIBB PERCEP-BSAS 2,00%( 5499,00)', 'Servicios', 'Gastos Bancarios'),
-  ('IVA RG 4240 21%( 5499,00)', 'Servicios', 'Gastos Bancarios'),
-  ('DB.RG 5617 30% ( 5499,00 )', 'Servicios', 'Gastos Bancarios');
+-- arca_ta: solo la familia (son credenciales temporales de ARCA; el superadmin no las ve).
+create policy todo on arca_ta for all to authenticated
+  using (familia_id = (select familia_actual()))
+  with check (familia_id = (select familia_actual()));
