@@ -36,6 +36,8 @@ declare
   cen_a uuid; cat_a uuid; sub_a uuid; mov_a uuid;
   cen_b uuid; cat_b uuid; sub_b uuid; mov_b uuid;
   nuevo uuid;
+  fc uuid := gen_random_uuid();  -- familia que no existe (restaurar una familia borrada)
+  resultado jsonb;
 begin
   begin  -- todo lo de adentro se deshace al final (ver "__tests_ok__")
 
@@ -249,6 +251,20 @@ begin
     if n <> 0 then raise exception 'FALLA: A renombró su familia'; end if;
     ok := array_append(ok, 'A: no escribe familias, miembros ni superadmins');
 
+    -- Funciones del superadmin: un miembro no las puede usar
+    begin
+      perform * from public.admin_miembros();
+      raise exception 'FALLA: A pudo listar los miembros de todas las familias';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+      perform public.restaurar_familia(fa, jsonb_build_object('centros', jsonb_build_array(
+        jsonb_build_object('id', gen_random_uuid(), 'familia_id', fa, 'codigo', 'R', 'nombre', 'Restaurado'))));
+      raise exception 'FALLA: A pudo restaurar un backup';
+    exception when insufficient_privilege then null;
+    end;
+    ok := array_append(ok, 'A: no puede usar admin_miembros() ni restaurar_familia()');
+
     reset role;
 
     -- El token de B quedó intacto
@@ -321,6 +337,70 @@ begin
     get diagnostics n = row_count;
     if n <> 1 then raise exception 'FALLA: el superadmin no pudo editar la configuración de B'; end if;
     ok := array_append(ok, 'superadmin: escribe la configuración de cualquier familia');
+
+    -- admin_miembros(): ve los emails de los miembros de todas las familias
+    select count(*) into n from public.admin_miembros()
+      where email in ('test-a@tests.invalid', 'test-b@tests.invalid');
+    if n <> 2 then raise exception 'FALLA: admin_miembros() no devuelve los miembros de las dos familias'; end if;
+    ok := array_append(ok, 'superadmin: admin_miembros() lista los miembros con su email');
+
+    -- restaurar_familia(): rechaza filas de otra familia
+    begin
+      perform public.restaurar_familia(fa, jsonb_build_object('centros', jsonb_build_array(
+        jsonb_build_object('id', gen_random_uuid(), 'familia_id', fb, 'codigo', 'R', 'nombre', 'De B'))));
+      raise exception 'FALLA: se restauraron en A filas de B';
+    exception when raise_exception then
+      if sqlerrm like 'FALLA%' then raise; end if;
+    end;
+    -- rechaza un id que ya es de otra familia (no se lo "roba")
+    begin
+      perform public.restaurar_familia(fa, jsonb_build_object('centros', jsonb_build_array(
+        jsonb_build_object('id', cen_b, 'familia_id', fa, 'codigo', 'R', 'nombre', 'Robado'))));
+      raise exception 'FALLA: la restauración de A pisó un centro de B';
+    exception when raise_exception then
+      if sqlerrm like 'FALLA%' then raise; end if;
+    end;
+    -- todo o nada: un centro válido + un movimiento que apunta a una categoría de B => no entra ninguno
+    nuevo := gen_random_uuid();
+    begin
+      perform public.restaurar_familia(fa, jsonb_build_object(
+        'centros', jsonb_build_array(jsonb_build_object('id', nuevo, 'familia_id', fa, 'codigo', 'R', 'nombre', 'Restaurado')),
+        'movimientos', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fa,
+          'fecha', current_date, 'categoria_id', cat_b, 'egreso', 1))));
+      raise exception 'FALLA: se restauró un movimiento que apunta a una categoría de B';
+    exception when foreign_key_violation then null;
+    end;
+    if exists (select 1 from public.centros where id = nuevo) then
+      raise exception 'FALLA: la restauración fallida dejó filas a medias';
+    end if;
+    ok := array_append(ok, 'superadmin: restaurar_familia() rechaza filas o ids de otra familia y es todo o nada');
+
+    -- restauración válida: actualiza lo que coincide por id y agrega lo que falta
+    resultado := public.restaurar_familia(fa, jsonb_build_object(
+      'centros', jsonb_build_array(jsonb_build_object('id', nuevo, 'familia_id', fa, 'codigo', 'R', 'nombre', 'Restaurado')),
+      'movimientos', jsonb_build_array(jsonb_build_object('id', mov_a, 'familia_id', fa, 'fecha', current_date,
+        'centro_id', cen_a, 'egreso', 100, 'detalle', 'restaurado')),
+      'configuracion', jsonb_build_array(jsonb_build_object('familia_id', fa, 'clave', 'arca_cuit', 'valor', '20111111111'))));
+    if resultado <> '{"centros": 1, "movimientos": 1, "configuracion": 1}'::jsonb then
+      raise exception 'FALLA: restaurar_familia() devolvió %', resultado;
+    end if;
+    if (select detalle from public.movimientos where id = mov_a) is distinct from 'restaurado'
+       or (select tarjeta from public.movimientos where id = mov_a) is distinct from false
+       or not exists (select 1 from public.centros where id = nuevo and familia_id = fa)
+       or (select valor from public.configuracion where familia_id = fa and clave = 'arca_cuit') <> '20111111111' then
+      raise exception 'FALLA: restaurar_familia() no aplicó bien los cambios';
+    end if;
+    ok := array_append(ok, 'superadmin: restaurar_familia() agrega y actualiza por id');
+
+    -- familia borrada: la vuelve a crear con el mismo id y nombre
+    perform public.restaurar_familia(fc, jsonb_build_object(
+      'familia', jsonb_build_object('id', fc, 'nombre', '__test C__'),
+      'categorias', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'nombre', 'Cat C'))));
+    if not exists (select 1 from public.familias where id = fc and nombre = '__test C__')
+       or not exists (select 1 from public.categorias where familia_id = fc) then
+      raise exception 'FALLA: restaurar_familia() no recreó la familia borrada';
+    end if;
+    ok := array_append(ok, 'superadmin: restaurar_familia() recrea una familia que ya no existe');
 
     reset role;
 

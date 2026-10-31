@@ -346,3 +346,114 @@ create policy borrar on configuracion for delete to authenticated
 create policy todo on arca_ta for all to authenticated
   using (familia_id = (select familia_actual()))
   with check (familia_id = (select familia_actual()));
+
+-- ============================================================
+-- FUNCIONES DEL SUPERADMIN (pestaña Administración)
+--
+-- security definer para poder leer auth.users y escribir pese a
+-- RLS, por eso lo primero que hacen es verificar es_superadmin().
+-- ============================================================
+
+-- Miembros de todas las familias con su email (la app no puede leer auth.users).
+create function admin_miembros()
+  returns table (user_id uuid, email text, familia_id uuid, familia text, created_at timestamptz)
+  language plpgsql stable security definer set search_path = ''
+as $$
+begin
+  if not public.es_superadmin() then
+    raise exception 'Solo el superadmin puede ver los miembros' using errcode = '42501';
+  end if;
+  return query
+    select m.user_id, u.email::text, m.familia_id, f.nombre, m.created_at
+    from public.miembros m
+    join auth.users u on u.id = m.user_id
+    join public.familias f on f.id = m.familia_id
+    order by f.nombre, u.email;
+end $$;
+
+-- Restaura los datos de UNA familia desde un backup (versión 3). p_datos trae
+-- { familia: {id, nombre}, centros: [...], categorias: [...], ... } con las filas
+-- tal cual las guardó el backup. Como la restauración de siempre, no borra nada:
+-- agrega lo que falta y actualiza lo que coincide por id.
+--
+-- Todo o nada: si algo falla (una fila de otra familia, un id que ya es de otra
+-- familia, una referencia rota) no se aplica ninguna fila.
+create function restaurar_familia(p_familia_id uuid, p_datos jsonb)
+  returns jsonb
+  language plpgsql security definer set search_path = ''
+as $$
+declare
+  -- En orden de dependencias: primero las que otras referencian.
+  tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
+                         'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
+  t text;
+  filas jsonb;
+  columnas text;
+  actualizar text;
+  n int;
+  resultado jsonb := '{}';
+begin
+  if not public.es_superadmin() then
+    raise exception 'Solo el superadmin puede restaurar backups' using errcode = '42501';
+  end if;
+  if p_familia_id is null then
+    raise exception 'Falta elegir la familia a restaurar';
+  end if;
+
+  -- Validar todo antes de escribir nada.
+  foreach t in array tablas loop
+    filas := coalesce(p_datos -> t, '[]');
+    if jsonb_typeof(filas) <> 'array' then
+      raise exception 'El backup tiene un formato inesperado en %', t;
+    end if;
+    if exists (select 1 from jsonb_array_elements(filas) e where e ->> 'familia_id' is distinct from p_familia_id::text) then
+      raise exception 'El backup tiene filas de otra familia en %', t;
+    end if;
+    if t <> 'configuracion' then
+      execute format('select count(*) from public.%I x join jsonb_array_elements($1) e on x.id = (e ->> ''id'')::uuid
+                      where x.familia_id <> $2', t)
+        using filas, p_familia_id into n;
+      if n > 0 then
+        raise exception '% fila(s) de % ya existen en otra familia: no se pueden restaurar en esta', n, t;
+      end if;
+    end if;
+  end loop;
+
+  -- Si la familia ya no existe (se borró), se vuelve a crear con el mismo id y nombre.
+  if not exists (select 1 from public.familias where id = p_familia_id) then
+    if p_datos -> 'familia' ->> 'nombre' is null then
+      raise exception 'La familia no existe en la base y el backup no trae su nombre';
+    end if;
+    insert into public.familias (id, nombre) values (p_familia_id, p_datos -> 'familia' ->> 'nombre');
+  end if;
+
+  foreach t in array tablas loop
+    filas := coalesce(p_datos -> t, '[]');
+    continue when jsonb_array_length(filas) = 0;
+
+    -- Solo las columnas que trae el backup: si es anterior a una columna nueva, esa toma su default.
+    select string_agg(quote_ident(a.attname), ', ' order by a.attnum),
+           string_agg(format('%1$I = excluded.%1$I', a.attname), ', ' order by a.attnum)
+             filter (where a.attname not in ('id', 'familia_id', 'clave'))
+      into columnas, actualizar
+    from pg_attribute a
+    where a.attrelid = format('public.%I', t)::regclass and a.attnum > 0 and not a.attisdropped
+      and exists (select 1 from jsonb_array_elements(filas) e where e ? a.attname);
+
+    execute format('insert into public.%1$I (%2$s) select %2$s from jsonb_populate_recordset(null::public.%1$I, $1)
+                    on conflict %3$s do %4$s',
+                   t, columnas,
+                   case when t = 'configuracion' then '(familia_id, clave)' else '(id)' end,
+                   coalesce('update set ' || actualizar, 'nothing'))
+      using filas;
+    get diagnostics n = row_count;
+    resultado := resultado || jsonb_build_object(t, n);
+  end loop;
+
+  return resultado;
+end $$;
+
+revoke execute on function admin_miembros() from public, anon;
+revoke execute on function restaurar_familia(uuid, jsonb) from public, anon;
+grant execute on function admin_miembros() to authenticated;
+grant execute on function restaurar_familia(uuid, jsonb) to authenticated;

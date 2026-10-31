@@ -51,6 +51,8 @@ la primera familia real, pasar a probar en local (`supabase start`, requiere Doc
   - Es el único que ve el **botón de backup**, que descarga **todas** las familias (N4). Restaurar es **por
     familia** (se elige qué familia del archivo restaurar, para no pisar las demás).
   - Sin MFA ni protección extra: el uso sigue siendo familiar (S5).
+  - La cuenta es **`anitacasadei+soporte@gmail.com`** (alias de Gmail de Ana), así `anitacasadei@gmail.com`
+    queda libre por si algún día Ana es miembro de una familia en este proyecto (F1).
 - **Altas por script** (N3, S3): el usuario se crea a mano en Supabase (Authentication → Users) y se lo asigna
   a una familia / como superadmin con scripts SQL versionados (`alta_familia.sql`, `alta_miembro.sql`,
   `alta_superadmin.sql`). La pestaña Administración por ahora solo **muestra** familias y miembros.
@@ -214,9 +216,10 @@ create policy borrar  on <tabla> for delete using (familia_id = (select familia_
 3. **Referencias cruzadas entre familias**: cubiertas con las FK compuestas.
 4. **Rendimiento**: `(select familia_actual())` en las políticas (se evalúa una vez, no por fila) + índices.
 5. **Restaurar un backup**: las filas traen su `familia_id`; restaurar otra familia la rechaza RLS → la
-   restauración tiene que validar la familia y avisarlo claro, no fallar a medias.
+   restauración tiene que validar la familia y avisarlo claro, no fallar a medias. Cubierto con
+   `restaurar_familia()` (Q3).
 6. **Un usuario que no está en `miembros`** entra y ve la app vacía (parece que se perdieron datos): verificarlo
-   en cada alta.
+   en cada alta. La app además le muestra un aviso en vez de la app vacía (Q4).
 
 ### Tests de seguridad
 
@@ -229,7 +232,33 @@ contra el proyecto con las familias dummy cargadas. Devuelve la lista de chequeo
 - no se puede insertar con el `familia_id` de otra familia;
 - un movimiento de A no puede apuntar a categoría/centro de B;
 - el superadmin ve todo y no puede escribir datos;
-- un usuario sin familia no ve nada.
+- un usuario sin familia no ve nada;
+- `admin_miembros()` y `restaurar_familia()` solo las usa el superadmin, y la restauración rechaza filas o ids
+  de otra familia y es todo o nada.
+
+## Superadmin en la app (fase 2)
+
+- **Perfil al entrar** (`cargarPerfil` en `app.js`): lee `superadmins` (cada uno ve solo su fila) y `familias`.
+  Superadmin → solo lectura + selector; miembro → su familia; ninguna de las dos → aviso "no está asignado a
+  ninguna familia" y botón de cerrar sesión (Q4).
+- **Selector de familia** arriba a la derecha. `dbFetchAll` le agrega `familia_id = <elegida>` a las tablas de
+  datos (`TABLAS_DE_FAMILIA`). Recuerda la última elegida en ese navegador; la primera vez, la primera por
+  orden alfabético (Q5).
+- **Solo lectura** (Q1): lista central `ACCIONES_LECTURA` en `app.js`. `handleAction` ignora cualquier otra;
+  después de cada render `aplicarSoloLectura()` saca sus botones, oculta las tarjetas de alta y deshabilita la
+  edición en línea de Movimientos; y `dbInsert`/`dbUpdate`/`dbDelete`/`dbUpsert` cortan si igual llegara
+  algo. **Una acción nueva que solo mire datos hay que sumarla a `ACCIONES_LECTURA`**, si no el superadmin no
+  la ve. La pestaña Importar no se le muestra.
+- **Administración** (solo superadmin): familias (con cantidad de miembros), miembros con su email
+  (`admin_miembros()`, Q2), descargar backup y restaurar una familia. El backup salió del ABM de las familias (N4).
+- **Backup versión 3**: `familias`, `miembros` y las tablas de datos de **todas** las familias, con `familia_id`.
+  El backup diario a Drive usa las mismas tablas (un test lo verifica).
+- **Restauración** (Q3): se elige el archivo y la familia; la app manda solo las filas de esa familia a
+  `restaurar_familia()` (`security definer`), que verifica que quien llama sea superadmin, que todas las filas
+  sean de esa familia y que ningún id sea ya de otra, y aplica todo en una transacción (todo o nada). No borra:
+  agrega y actualiza por id. Si la familia ya no existe, la vuelve a crear con el mismo id y nombre. Los
+  `miembros` del archivo no se restauran (dependen de los usuarios de Auth: se dan de alta por script). Solo
+  acepta backups versión 3 (no los del proyecto original).
 
 ## Familias dummy
 
@@ -270,7 +299,7 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 |---|---|---|
 | 0 | Fork, Pages, Supabase nuevo, apuntar la app al proyecto nuevo y rutas relativas | ✅ hecho |
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
-| 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | pendiente |
+| 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | 🟡 código listo; falta aplicar las funciones nuevas en Supabase y probar con la cuenta de soporte |
 | 3 | Personas y titulares (D5) | pendiente |
 | 4 | Catálogo de configuración + valores por familia (D3) | pendiente |
 | 5 | Funciones activables (D4) | pendiente |
@@ -285,12 +314,8 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 
 - **Configuración visible para la familia**: ¿la ve en el ABM en solo lectura, o no la ve? (propuesta: la ve en
   solo lectura).
-- **Email de la cuenta superadmin** (hace falta para la fase 2).
 - **Tests de seguridad en GitHub Actions** además de a mano en el SQL Editor (propuesta: sí, levantando Supabase
   local en el runner, que tiene Docker; agrega ~2–3 min por push).
-- **Restauración por el superadmin**: como no puede escribir datos por RLS, la restauración por familia necesita
-  un camino propio (función `security definer` que valide la familia, o script con service role).
-- **Supabase Auth → Site URL** = la URL de Pages (para los links de los mails).
 
 ## Glosario de decisiones
 
@@ -319,6 +344,11 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | P6 | Tests de seguridad | SQL plano para el SQL Editor (como en el original), no pgTAP |
 | P7 | Migraciones | Solo `schema.sql` mientras sea dummy; migraciones desde la fase 9 |
 | P8 | Tablas de fases posteriores (`personas`, `familia_config`, …) | Se crean en su fase |
+| Q1 | Solo lectura del superadmin | Lista central de acciones de lectura + se ocultan las demás + corte en la capa de datos |
+| Q2 | Emails de los miembros | Función `admin_miembros()` (solo superadmin) |
+| Q3 | Restauración por familia | Función `restaurar_familia()`: valida familia, todo o nada, recrea la familia si no existe; solo backups v3 |
+| Q4 | Usuario sin familia | Aviso en vez de la app vacía |
+| Q5 | Selector de familia | Recuerda la última elegida; si no, la primera alfabética |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

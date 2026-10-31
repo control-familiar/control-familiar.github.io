@@ -16,11 +16,12 @@ const GDRIVE_OAUTH_CLIENT_SECRET = requireEnv('GDRIVE_OAUTH_CLIENT_SECRET');
 const GDRIVE_OAUTH_REFRESH_TOKEN = requireEnv('GDRIVE_OAUTH_REFRESH_TOKEN');
 
 // Mismas tablas (y en el mismo orden) que TABLAS_BACKUP en app.js: así el archivo se puede restaurar
-// desde la app con "Restaurar desde un backup". Un test chequea que las dos listas coincidan.
-const TABLAS = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
+// desde la pestaña Administración (de a una familia). Un test chequea que las dos listas coincidan.
+// Con la service role key se leen todas las familias (se saltea RLS).
+const TABLAS = ['familias', 'miembros', 'centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
   'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
 // Columna para ordenar al paginar (sin un orden fijo, las páginas pueden repetir o saltear filas).
-const CLAVE_ORDEN = { configuracion: 'clave' };
+const CLAVE_ORDEN = { miembros: 'user_id', configuracion: 'familia_id.asc,clave' };
 // Supabase devuelve como máximo 1000 filas por request: hay que pedirlas de a páginas.
 const TAM_PAGINA = 1000;
 
@@ -70,7 +71,7 @@ async function main() {
   }
 
   var backupObj = Object.assign(
-    { version: 2, exportadoEn: new Date().toISOString() },
+    { version: 3, exportadoEn: new Date().toISOString() },
     datosPorTabla
   );
 

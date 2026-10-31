@@ -3,16 +3,24 @@
  * dbInsert/dbUpdate/dbDelete/dbUpsert en app.js), sin pegarle a la red. Cada llamada
  * queda registrada en `calls` para poder assertear qué se intentó persistir.
  * `tablas` (opcional) son las filas que devuelve select() por tabla, paginadas con range() como
- * lo pide dbFetchAll.
+ * lo pide dbFetchAll (con eq() filtra, como el filtro por familia del superadmin; cada lectura queda
+ * en `selects`). `rpcs` (opcional): respuesta de cada función de la base, por nombre ({ data, error }).
  */
-export function mockSb(tablas = {}) {
+export function mockSb(tablas = {}, rpcs = {}) {
   const calls = [];
+  const selects = [];
   function from(table) {
     return {
       select() {
+        const filtros = [];
         const consulta = {
+          eq: (col, val) => { filtros.push([col, val]); return consulta; },
           order: () => consulta,
-          range: async (desde, hasta) => ({ data: (tablas[table] || []).slice(desde, hasta + 1), error: null })
+          range: async (desde, hasta) => {
+            selects.push({ table, filtros });
+            const filas = (tablas[table] || []).filter(r => filtros.every(([col, val]) => r[col] === val));
+            return { data: filas.slice(desde, hasta + 1), error: null };
+          }
         };
         return consulta;
       },
@@ -42,5 +50,9 @@ export function mockSb(tablas = {}) {
       }
     };
   }
-  return { calls, client: { from } };
+  async function rpc(nombre, args) {
+    calls.push({ op: 'rpc', nombre, args });
+    return rpcs[nombre] || { data: null, error: null };
+  }
+  return { calls, selects, client: { from, rpc } };
 }

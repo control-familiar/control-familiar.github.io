@@ -9,7 +9,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   filtros:{centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false},
   resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
   vencFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true, gimnasioMsg:null,
-  usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, backupPendiente:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
+  usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
   usdtVentaMovId:null, usdtVentaMovMsg:null, usdtVentaMovCantidad:'',
   reglas: [], reglaFormMsg:null, reglasPaginaActual:1, reglasPorPagina:leerTamPagina('controlReglasPorPagina', [15,30,50,100], 15), movPorPagina:leerTamPagina('controlMovPorPagina', [25,50,100,200], 50),
   nuevoMovAbierto:false, movDraftCentroDestinoId:'', comboAbierto:null, comboBusqueda:'', comboHighlight:0,
@@ -17,6 +17,10 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   tema: (function(){ try{ return localStorage.getItem('controlTema')==='oscuro' ? 'oscuro' : 'claro'; }catch(e){ return 'claro'; } })(),
   temaColor: (function(){ try{ var c = localStorage.getItem('controlTemaColor'); return (c==='azul'||c==='naranja') ? c : 'verde'; }catch(e){ return 'verde'; } })(),
   menuUsuarioAbierto:false, usdtFormMsg:null, usdtDraft:null, usdtIngresoOpcionalesAbierto:false,
+  // Multi-familia (ver docs/MULTI-FAMILIA.md): el superadmin ve todas las familias en solo lectura, de a una
+  // (la elegida en el selector); un usuario sin familia no ve la app.
+  esSuperadmin:false, soloLectura:false, sinFamilia:false, familias:[], familiaSeleccionadaId:null,
+  adminMiembros:[], adminMiembrosError:null, backupArchivo:null, backupFamiliaRestaurar:'',
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -338,12 +342,22 @@ function fromDbFactura(r){
 function fromDbConfiguracion(r){ return {clave:r.clave, valor:r.valor}; }
 
 // ---- CRUD genérico contra Supabase ----
-async function dbFetchAll(table, ordenarPor){
+// Tablas con datos de cada familia. Un miembro no necesita filtrar (RLS ya le devuelve solo lo de su
+// familia, y familia_id lo completa la base al insertar); el superadmin ve todas, así que acá se
+// filtra por la familia elegida en el selector.
+var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
+  'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
+
+// opciones.todasLasFamilias: sin filtrar por la familia elegida (backup global del superadmin).
+async function dbFetchAll(table, ordenarPor, opciones){
+  var filtrarFamilia = STATE.esSuperadmin && STATE.familiaSeleccionadaId && TABLAS_DE_FAMILIA.indexOf(table)!==-1 &&
+    !(opciones && opciones.todasLasFamilias);
   var allRows = [];
   var pageSize = 1000;
   var from = 0;
   while(true){
     var q = sb.from(table).select('*');
+    if(filtrarFamilia) q = q.eq('familia_id', STATE.familiaSeleccionadaId);
     if(ordenarPor) q = q.order(ordenarPor, {ascending:true}).order('id', {ascending:true});
     var res = await q.range(from, from + pageSize - 1);
     if(res.error) throw res.error;
@@ -354,75 +368,79 @@ async function dbFetchAll(table, ordenarPor){
   }
   return allRows;
 }
+// Red de seguridad del modo solo lectura (superadmin): aunque algún botón de escritura quedara visible,
+// no llega a la base. RLS lo rechazaría igual, pero con un error menos claro.
+function verificarEscritura(){
+  if(STATE.soloLectura) throw new Error('El soporte ve los datos de las familias en solo lectura.');
+}
 async function dbInsert(table, rowOrRows){
+  verificarEscritura();
   var res = await sb.from(table).insert(rowOrRows).select();
   if(res.error) throw res.error;
   return res.data;
 }
 async function dbUpdate(table, id, fields){
+  verificarEscritura();
   var res = await sb.from(table).update(fields).eq('id', id);
   if(res.error) throw res.error;
 }
 async function dbDelete(table, id){
+  verificarEscritura();
   var res = await sb.from(table).delete().eq('id', id);
   if(res.error) throw res.error;
 }
 async function dbUpsert(table, rows){
   if(!rows.length) return [];
+  verificarEscritura();
   var res = await sb.from(table).upsert(rows).select();
   if(res.error) throw res.error;
   return res.data;
 }
 
-// ---- BACKUP ----
-// Tablas que entran en el backup (botón "Descargar backup" y el backup diario de
-// scripts/backup-a-drive/backup.js, que tiene que listar exactamente las mismas). El orden importa
-// al restaurar: primero las que otras referencian (centros antes que movimientos, movimientos antes
-// que usdt_movimientos/facturas). arca_ta queda afuera a propósito: es un token temporal de ARCA.
-var TABLAS_BACKUP = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-  'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
-var BACKUP_LOTE = 500; // filas por upsert al restaurar, para no mandar un request gigante
+// ---- BACKUP (solo superadmin) ----
+// Tablas que entran en el backup global (botón "Descargar backup" de Administración y el backup diario
+// de scripts/backup-a-drive/backup.js, que tiene que listar exactamente las mismas): familias, miembros
+// y los datos de todas las familias. arca_ta queda afuera a propósito: es un token temporal de ARCA.
+var TABLAS_BACKUP = ['familias', 'miembros'].concat(TABLAS_DE_FAMILIA);
 
-// Backup versión 2: las filas tal cual están en la base (snake_case), igual que el backup diario a
-// Drive, así cualquiera de los dos se restaura desde la app. Lee de la base y no de STATE para no
-// perder columnas que la app no mapea (created_at, etc.).
+// Backup versión 3: las filas tal cual están en la base (snake_case, con familia_id), igual que el
+// backup diario a Drive. Lee de la base y no de STATE para no perder columnas que la app no mapea
+// (created_at, etc.) ni las familias que no están elegidas en el selector.
 async function armarBackup(){
-  var backupObj = { version: 2, exportadoEn: new Date().toISOString() };
+  var backupObj = { version: 3, exportadoEn: new Date().toISOString() };
   for(var i=0; i<TABLAS_BACKUP.length; i++){
-    backupObj[TABLAS_BACKUP[i]] = await dbFetchAll(TABLAS_BACKUP[i]);
+    backupObj[TABLAS_BACKUP[i]] = await dbFetchAll(TABLAS_BACKUP[i], null, { todasLasFamilias: true });
   }
   return backupObj;
 }
 
-// Versión 1 (backups viejos descargados desde la app): solo 5 tablas y en el formato de STATE
-// (camelCase), así que hay que pasarlas por los mappers. Se devuelve en el formato de la base para
-// que la restauración sea una sola.
-function backupV1AFilasDb(datos){
-  var movs = datos.movimientos||[];
-  return {
-    centros: (datos.centros||[]).map(toDbCentro),
-    categorias: (datos.categorias||[]).map(toDbCategoria),
-    subcategorias: (datos.subcategorias||[]).map(toDbSubcategoria),
-    // En dos tandas (pesos / dólares): toDbMovimiento solo manda "moneda" en los USD, y un upsert
-    // mezclado dejaría esa columna en null para los de pesos.
-    movimientos: movs.filter(function(m){ return m.moneda!=='USD'; }).map(toDbMovimiento),
-    movimientosUsd: movs.filter(function(m){ return m.moneda==='USD'; }).map(toDbMovimiento),
-    vencimientos: (datos.vencimientos||[]).map(toDbVencimiento)
-  };
+// Familias que trae un backup v3, con cuántas filas de datos tiene cada una. Incluye las que tienen
+// datos aunque no figuren en "familias" (por si el archivo se armó a mano o está incompleto).
+function familiasEnBackup(datos){
+  var porId = {};
+  (datos.familias||[]).forEach(function(f){ porId[f.id] = { id:f.id, nombre:f.nombre||'', filas:0 }; });
+  TABLAS_DE_FAMILIA.forEach(function(t){
+    (datos[t]||[]).forEach(function(r){
+      if(!r.familia_id) return;
+      if(!porId[r.familia_id]) porId[r.familia_id] = { id:r.familia_id, nombre:'', filas:0 };
+      porId[r.familia_id].filas++;
+    });
+  });
+  return Object.keys(porId).map(function(id){ return porId[id]; })
+    .sort(function(a, b){ return (a.nombre||a.id).localeCompare(b.nombre||b.id); });
 }
 
-async function restaurarBackup(datos){
-  var filas = Number(datos.version) >= 2 ? datos : backupV1AFilasDb(datos);
-  for(var i=0; i<TABLAS_BACKUP.length; i++){
-    var tabla = TABLAS_BACKUP[i];
-    var lotes = [filas[tabla]||[]];
-    if(tabla==='movimientos' && filas.movimientosUsd) lotes.push(filas.movimientosUsd);
-    for(var l=0; l<lotes.length; l++){
-      for(var desde=0; desde<lotes[l].length; desde+=BACKUP_LOTE){
-        await dbUpsert(tabla, lotes[l].slice(desde, desde+BACKUP_LOTE));
-      }
-    }
-  }
+// Restaura UNA familia del backup con la función restaurar_familia() de la base: valida que todo sea
+// de esa familia y aplica todo o nada (no borra: agrega lo que falta y actualiza lo que coincide por id).
+async function restaurarFamilia(datos, familiaId){
+  var familia = (datos.familias||[]).find(function(f){ return f.id===familiaId; });
+  var payload = { familia: familia ? { id: familia.id, nombre: familia.nombre } : null };
+  TABLAS_DE_FAMILIA.forEach(function(t){
+    payload[t] = (datos[t]||[]).filter(function(r){ return r.familia_id===familiaId; });
+  });
+  var res = await sb.rpc('restaurar_familia', { p_familia_id: familiaId, p_datos: payload });
+  if(res.error) throw res.error;
+  return res.data;
 }
 
 async function cargarTodo(){
@@ -470,18 +488,66 @@ async function cargarTodo(){
 }
 
 // ===================== AUTENTICACIÓN =====================
+// Quién es el usuario logueado: superadmin (ve todas las familias en solo lectura, con selector) o
+// miembro de una familia (RLS le devuelve solo la suya). Si no es ninguna de las dos, no ve la app.
+async function cargarPerfil(){
+  var superadmins = await dbFetchAll('superadmins');
+  var familias = await dbFetchAll('familias', 'nombre');
+  STATE.esSuperadmin = superadmins.length > 0;
+  STATE.soloLectura = STATE.esSuperadmin;
+  STATE.familias = familias;
+  STATE.sinFamilia = !STATE.esSuperadmin && !familias.length;
+  STATE.familiaSeleccionadaId = null;
+  STATE.adminMiembros = [];
+  STATE.adminMiembrosError = null;
+  if(STATE.esSuperadmin){
+    var guardada = null;
+    try{ guardada = localStorage.getItem('controlFamiliaSuperadmin'); }catch(e){}
+    var existe = familias.some(function(f){ return f.id===guardada; });
+    STATE.familiaSeleccionadaId = existe ? guardada : (familias[0] ? familias[0].id : null);
+    try{
+      var res = await sb.rpc('admin_miembros');
+      if(res.error) throw res.error;
+      STATE.adminMiembros = res.data || [];
+    }catch(e){ STATE.adminMiembrosError = 'No se pudieron cargar los miembros: '+(e.message||e); }
+  } else if(STATE.activeTab==='admin'){
+    STATE.activeTab = 'resumen';
+  }
+}
+async function cargarSesion(){
+  await cargarPerfil();
+  if(!STATE.sinFamilia) await cargarTodo();
+}
+
+// Superadmin: cambia la familia que se está mirando y recarga sus datos.
+async function elegirFamilia(familiaId){
+  STATE.familiaSeleccionadaId = familiaId;
+  try{ localStorage.setItem('controlFamiliaSuperadmin', familiaId); }catch(e){}
+  STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false};
+  STATE.editing = null; STATE.movSeleccionados = []; STATE.movPaginaActual = 1; STATE.reglasPaginaActual = 1;
+  STATE.incompletosSnapshotIds = null; STATE.dbError = null;
+  STATE.ready = false;
+  render();
+  try{
+    await cargarTodo();
+  }catch(e){ STATE.dbError = 'No se pudo cargar la familia: '+(e.message||e); }
+  STATE.saldosDirty = true;
+  STATE.ready = true;
+  render();
+}
+
 async function mostrarApp(){
   document.getElementById('loginWrap').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   try{
-    await cargarTodo();
+    await cargarSesion();
   }catch(e){
     // A veces la carga falla por un desfasaje transitorio de reloj contra el token recién emitido
     // (ej. "JWT issued at future") justo al loguearse — un reintento a los pocos segundos casi
     // siempre alcanza, sin que haga falta que el usuario le dé F5 a mano.
     await new Promise(function(r){ setTimeout(r, 1500); });
     try{
-      await cargarTodo();
+      await cargarSesion();
     }catch(e2){
       STATE.dbError = 'No se pudo cargar la información desde la base de datos: ' + (e2.message||e2);
     }
@@ -1509,6 +1575,15 @@ function render(){
 function renderInterno(){
   var app = document.getElementById('app');
   if(!STATE.ready){ app.innerHTML = '<div class="loading">Cargando datos...</div>'; return; }
+  if(STATE.sinFamilia){
+    app.innerHTML = '<div class="login-wrap"><div class="login-card">'+
+      '<h1 style="font-size:24px;margin-bottom:8px">Control</h1>'+
+      '<div class="msg err" style="margin-bottom:16px">Tu usuario ('+esc(STATE.usuarioEmail||'')+') no está asignado a ninguna familia. Pedile al soporte que te agregue.</div>'+
+      '<button data-action="cerrar-sesion" style="width:100%">Cerrar sesión</button>'+
+    '</div></div>';
+    app.querySelector('[data-action="cerrar-sesion"]').addEventListener('click', function(){ handleAction('cerrar-sesion'); });
+    return;
+  }
 
   // Guardar qué campo de texto tenía el foco (y en qué posición del cursor), para
   // restaurarlo después de reconstruir el HTML — si no, cada letra tipeada te saca el foco.
@@ -1543,6 +1618,10 @@ function renderInterno(){
     {id:'gimnasio', label:'Gimnasio', icono:'bi-activity'},
     {id:'abm', label:'ABM', icono:'bi-gear'}
   ];
+  if(STATE.esSuperadmin){
+    tabs = tabs.filter(function(t){ return t.id!=='importar'; });
+    tabs.push({id:'admin', label:'Administración', icono:'bi-shield-lock', separadorAntes:true});
+  }
 
   var sidebarHtml = '<div class="sidebar'+(STATE.menuMovilAbierto?' abierto':'')+'">'+
     '<div class="masthead"><span class="masthead-mark"><i class="bi bi-piggy-bank"></i></span><h1>Control</h1><div class="tagline">Control económico<br>datos compartidos</div></div>'+
@@ -1565,12 +1644,14 @@ function renderInterno(){
     '</div>'+
     '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">'+
       '<button class="mobile-add-btn" data-action="abrir-efectivo" title="Cargar efectivo" aria-label="Cargar efectivo"><i class="bi bi-cash-coin"></i></button>'+
+      renderSelectorFamilia('sel-familia-movil')+
       renderMenuUsuario()+
     '</div>'+
   '</div>'+
   '<div class="sidebar-backdrop'+(STATE.menuMovilAbierto?' visible':'')+'" data-action="cerrar-menu-movil"></div>';
 
-  var contentHtml = '<div class="topbar-desktop"><h2 class="topbar-titulo">'+esc(tituloSeccion)+'</h2>'+renderMenuUsuario()+'</div>';
+  var contentHtml = '<div class="topbar-desktop"><h2 class="topbar-titulo">'+esc(tituloSeccion)+'</h2>'+
+    '<div style="display:flex;align-items:center;gap:12px">'+renderSelectorFamilia('sel-familia')+renderMenuUsuario()+'</div></div>';
   if(STATE.dbError){
     contentHtml += '<div class="msg err" style="margin-bottom:14px">'+esc(STATE.dbError)+'</div>';
   }
@@ -1592,6 +1673,7 @@ function renderInterno(){
     else if(STATE.activeTab==='dolares') contentHtml += renderDolares();
     else if(STATE.activeTab==='gimnasio') contentHtml += renderGimnasio();
     else if(STATE.activeTab==='abm') contentHtml += renderABM();
+    else if(STATE.activeTab==='admin' && STATE.esSuperadmin) contentHtml += renderAdministracion();
   }
   contentHtml += '</div>';
 
@@ -1827,8 +1909,7 @@ function renderABM(){
     {id:'categorias', label:'Categorías'},
     {id:'subcategorias', label:'Subcategorías'},
     {id:'centros', label:'Centros de Costo'},
-    {id:'reglas', label:'Reglas de categorización'},
-    {id:'backup', label:'Backup'}
+    {id:'reglas', label:'Reglas de categorización'}
   ];
   var html = '<div class="subtabs">';
   subtabs.forEach(function(t){
@@ -1839,7 +1920,6 @@ function renderABM(){
   if(STATE.abmSubTab === 'subcategorias') html += renderSubcategorias();
   else if(STATE.abmSubTab === 'centros') html += renderCentros();
   else if(STATE.abmSubTab === 'reglas') html += renderReglas();
-  else if(STATE.abmSubTab === 'backup') html += renderBackup();
   else html += renderCategorias();
 
   return html;
@@ -1891,22 +1971,86 @@ function renderReglas(){
   '</div>';
 }
 
-function renderBackup(){
+// Selector de familia del superadmin (arriba a la derecha). A los miembros no se les muestra.
+function renderSelectorFamilia(idSelect){
+  if(!STATE.esSuperadmin) return '';
+  if(!STATE.familias.length) return '<span class="selector-familia-vacio">Sin familias</span>';
+  return '<label class="selector-familia" title="Familia que estás viendo (solo lectura)">'+
+    '<i class="bi bi-eye"></i>'+
+    '<select id="'+idSelect+'" data-selector-familia aria-label="Familia">'+
+      STATE.familias.map(function(f){
+        return '<option value="'+esc(f.id)+'"'+(f.id===STATE.familiaSeleccionadaId?' selected':'')+'>'+esc(f.nombre)+'</option>';
+      }).join('')+
+    '</select>'+
+  '</label>';
+}
+
+function fmtFechaHora(iso){
+  if(!iso) return '—';
+  var d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-AR');
+}
+
+// Pestaña Administración (solo superadmin): familias, miembros, backup global y restauración por familia.
+// Las altas se hacen por script (scripts/sql/alta_*.sql): acá solo se muestran.
+function renderAdministracion(){
+  var miembrosPorFamilia = {};
+  STATE.adminMiembros.forEach(function(m){ miembrosPorFamilia[m.familia_id] = (miembrosPorFamilia[m.familia_id]||0) + 1; });
+
+  var filasFamilias = STATE.familias.map(function(f){
+    return '<tr><td>'+esc(f.nombre)+'</td><td>'+(miembrosPorFamilia[f.id]||0)+'</td><td>'+fmtFechaHora(f.created_at)+'</td></tr>';
+  }).join('');
+  var filasMiembros = STATE.adminMiembros.map(function(m){
+    return '<tr><td>'+esc(m.email)+'</td><td>'+esc(m.familia)+'</td><td>'+fmtFechaHora(m.created_at)+'</td></tr>';
+  }).join('');
+  var ayudaAltas = '<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Las altas se hacen con los scripts de <code>scripts/sql/</code> en el SQL Editor de Supabase.</div>';
+
   var msgHtml = STATE.backupMsg ? '<div class="msg '+(STATE.backupMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.backupMsg.text)+'</div>' : '';
+  var restaurarHtml = '';
+  if(STATE.backupArchivo){
+    var enArchivo = familiasEnBackup(STATE.backupArchivo);
+    restaurarHtml = '<div class="fields-row" style="margin-top:12px">'+
+      '<div class="field"><label>Familia a restaurar</label><select id="backup-familia">'+
+        enArchivo.map(function(f){
+          var enBase = STATE.familias.some(function(x){ return x.id===f.id; });
+          return '<option value="'+esc(f.id)+'"'+(f.id===STATE.backupFamiliaRestaurar?' selected':'')+'>'+
+            esc(f.nombre||f.id)+' — '+f.filas+' fila(s)'+(enBase?'':' (no existe en la base: se vuelve a crear)')+'</option>';
+        }).join('')+
+      '</select></div>'+
+      '<div class="field" style="justify-content:flex-end"><button data-action="restaurar-familia">Restaurar esta familia</button></div>'+
+      '<div class="field" style="justify-content:flex-end"><button class="secondary" data-action="cancelar-restaurar">Cancelar</button></div>'+
+    '</div>';
+  }
+
   return ''+
   '<div class="card">'+
+    '<h2>Familias ('+STATE.familias.length+')</h2>'+
+    (STATE.familias.length
+      ? '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Familia</th><th>Miembros</th><th>Alta</th></tr></thead><tbody>'+filasFamilias+'</tbody></table></div>'
+      : '<div class="empty">Todavía no hay familias.</div>')+
+    ayudaAltas+
+  '</div>'+
+  '<div class="card">'+
+    '<h2>Miembros ('+STATE.adminMiembros.length+')</h2>'+
+    (STATE.adminMiembrosError ? '<div class="msg err">'+esc(STATE.adminMiembrosError)+'</div>' : '')+
+    (STATE.adminMiembros.length
+      ? '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Email</th><th>Familia</th><th>Alta</th></tr></thead><tbody>'+filasMiembros+'</tbody></table></div>'
+      : (STATE.adminMiembrosError ? '' : '<div class="empty">Todavía no hay miembros.</div>'))+
+  '</div>'+
+  '<div class="card">'+
     '<h2>Descargar backup</h2>'+
-    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Genera un archivo con todo lo que hay cargado hoy (Centros, Categorías, Subcategorías, Movimientos, Vencimientos, Deudas, USDT, Facturas, Gimnasio, Reglas y Configuración). Te sirve para restaurar todo si algún día se pierde algo en la base de datos. Además, todos los días se sube uno automático a Google Drive con el mismo formato.</div>'+
+    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Genera un archivo con <strong>todas las familias</strong>: familias, miembros y sus datos (Centros, Categorías, Subcategorías, Movimientos, Vencimientos, Deudas, USDT, Facturas, Gimnasio, Reglas y Configuración).</div>'+
     '<button data-action="descargar-backup"><i class="bi bi-download"></i> Descargar backup completo (.json)</button>'+
   '</div>'+
   '<div class="card">'+
-    '<h2>Restaurar desde un backup</h2>'+
+    '<h2>Restaurar una familia desde un backup</h2>'+
     msgHtml+
-    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Elegí un archivo .json descargado antes con "Descargar backup" o uno de los backups diarios de Google Drive. Esto <strong>no borra</strong> lo que ya tenés cargado: agrega lo que falte y actualiza lo que coincida por ID. Te va a pedir confirmación antes de aplicar nada.</div>'+
+    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Elegí un archivo .json descargado con "Descargar backup" y después la familia a restaurar: las demás no se tocan. Esto <strong>no borra</strong> nada: agrega lo que falte y actualiza lo que coincida por ID. Es todo o nada: si algo no cierra, no se aplica ninguna fila.</div>'+
     '<div class="fields-row">'+
       '<input type="file" id="backup-file" accept="application/json,.json">'+
-      '<button data-action="restaurar-backup-preview">Restaurar</button>'+
+      '<button data-action="restaurar-backup-preview">Leer archivo</button>'+
     '</div>'+
+    restaurarHtml+
   '</div>';
 }
 
@@ -4688,8 +4832,35 @@ function bindEvents(){
     });
   }
 
+  document.querySelectorAll('[data-selector-familia]').forEach(function(sel){
+    sel.addEventListener('change', function(){ elegirFamilia(sel.value); });
+  });
+  var backupFamiliaSel = document.getElementById('backup-familia');
+  if(backupFamiliaSel){ backupFamiliaSel.addEventListener('change', function(){ STATE.backupFamiliaRestaurar = backupFamiliaSel.value; }); }
+
+  if(STATE.soloLectura) aplicarSoloLectura();
+
   document.querySelectorAll('[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){ handleAction(btn.getAttribute('data-action'), btn.getAttribute('data-id')); });
+  });
+}
+
+// Modo solo lectura (superadmin): después de cada render saca lo que escribe en la base, así no hace falta
+// tocar cada pantalla. Los botones de acciones que no están en ACCIONES_LECTURA desaparecen; las tarjetas de
+// alta (las que tenían un botón de guardar/agregar) se ocultan enteras para no dejar un formulario sin botón;
+// y los campos que editan directo en la tabla de Movimientos quedan deshabilitados.
+function aplicarSoloLectura(){
+  var app = document.getElementById('app');
+  app.querySelectorAll('[data-action]').forEach(function(el){
+    var accion = el.getAttribute('data-action');
+    if(ACCIONES_LECTURA.indexOf(accion)!==-1) return;
+    var esAlta = /^(save-|guardar-|agregar-|preview-import|gym-marcar)/.test(accion);
+    var card = esAlta && el.closest('.card');
+    if(card) card.style.display = 'none';
+    el.remove();
+  });
+  app.querySelectorAll('#tabla-movimientos [data-field], #tabla-movimientos .chk-select-mov, #chk-select-all-mov').forEach(function(el){
+    el.disabled = true;
   });
 }
 
@@ -4723,7 +4894,22 @@ function getMovFormValues(){
   };
 }
 
+// Acciones que no escriben en la base: las únicas que tiene el superadmin (solo lectura, S1). Cualquier
+// otra se ignora y su botón no se muestra (ver aplicarSoloLectura). Una acción nueva que solo mire
+// datos tiene que sumarse acá para que el superadmin la vea.
+var ACCIONES_LECTURA = ['mov-pagina-anterior', 'mov-pagina-siguiente', 'ir-a-vencimientos', 'ir-a-movimientos-centro',
+  'ir-a-reglas', 'reglas-pagina-anterior', 'reglas-pagina-siguiente', 'cancel-edit', 'confirm-yes', 'confirm-no',
+  'limpiar-filtros-mov', 'toggle-filtros-mov', 'toggle-grupo-tarjeta-mov', 'toggle-multiselect', 'multiselect-limpiar',
+  'refrescar-incompletos', 'recalcular-saldos', 'exportar-movimientos-excel', 'ver-comprobante',
+  'actualizar-cotizacion-usdt', 'actualizar-dolar-blue', 'toggle-usdt-opcionales',
+  'toggle-menu-movil', 'cerrar-menu-movil', 'toggle-menu-usuario', 'set-tema-color', 'toggle-tema', 'cerrar-sesion',
+  // Administración (solo superadmin)
+  'descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado'];
+var ACCIONES_SUPERADMIN = ['descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado'];
+
 async function handleAction(action, id){
+  if(STATE.soloLectura && ACCIONES_LECTURA.indexOf(action)===-1) return;
+  if(!STATE.esSuperadmin && ACCIONES_SUPERADMIN.indexOf(action)!==-1) return;
   STATE.movDraft = null;
   STATE.usdtDraft = null;
 
@@ -4838,7 +5024,7 @@ async function handleAction(action, id){
     if(pending) await handleAction(pending.action, pending.id);
     return;
   }
-  if(action==='confirm-no'){ STATE.confirmState = null; STATE.backupPendiente = null; render(); return; }
+  if(action==='confirm-no'){ STATE.confirmState = null; render(); return; }
 
   // ---- CENTROS ----
   if(action==='edit-centro'){ STATE.editing = {type:'centro', id:id}; render(); return; }
@@ -5034,33 +5220,49 @@ async function handleAction(action, id){
   }
   if(action==='restaurar-backup-preview'){
     var archivo = document.getElementById('backup-file').files[0];
+    STATE.backupArchivo = null;
     if(!archivo){ STATE.backupMsg = {type:'err', text:'Elegí primero un archivo .json.'}; render(); return; }
     try{
-      var texto = await archivo.text();
-      var datos = JSON.parse(texto);
+      var datos = JSON.parse(await archivo.text());
       if(!datos || typeof datos !== 'object'){ throw new Error('El archivo no tiene el formato esperado.'); }
-      var detalleTablas = TABLAS_BACKUP.map(function(t){ return (datos[t]||[]).length; })
-        .map(function(n, i){ return n ? n+' de '+TABLAS_BACKUP[i] : null; })
-        .filter(Boolean);
-      if(!detalleTablas.length) throw new Error('El archivo no tiene datos para restaurar.');
-      STATE.backupPendiente = datos;
-      STATE.confirmState = {
-        message: '¿Restaurar este backup (del '+(datos.exportadoEn ? new Date(datos.exportadoEn).toLocaleString('es-AR') : 'fecha desconocida')+')? Se van a agregar o actualizar filas: '+detalleTablas.join(', ')+'. No se borra nada de lo que ya tenés.',
-        action: 'restaurar-backup-confirmado'
-      };
+      if(!(Number(datos.version) >= 3)) throw new Error('Es un backup del proyecto original (una sola familia): solo se pueden restaurar backups multi-familia (versión 3).');
+      var enArchivo = familiasEnBackup(datos);
+      if(!enArchivo.length) throw new Error('El archivo no tiene datos de ninguna familia.');
+      STATE.backupArchivo = datos;
+      var actual = enArchivo.find(function(f){ return f.id===STATE.familiaSeleccionadaId; });
+      STATE.backupFamiliaRestaurar = (actual || enArchivo[0]).id;
+      STATE.backupMsg = { type:'ok', text:'Backup del '+(datos.exportadoEn ? new Date(datos.exportadoEn).toLocaleString('es-AR') : '(fecha desconocida)')+' con '+enArchivo.length+' familia(s). Elegí cuál restaurar.' };
     }catch(e){ STATE.backupMsg = {type:'err', text:'No se pudo leer el archivo: '+(e.message||e)}; }
     render(); return;
   }
-  if(action==='restaurar-backup-confirmado'){
-    var datosR = STATE.backupPendiente;
-    STATE.backupPendiente = null;
-    if(!datosR){ render(); return; }
+  if(action==='cancelar-restaurar'){ STATE.backupArchivo = null; STATE.backupMsg = null; render(); return; }
+  if(action==='restaurar-familia'){
+    if(!STATE.backupArchivo){ render(); return; }
+    STATE.backupFamiliaRestaurar = (document.getElementById('backup-familia')||{}).value || STATE.backupFamiliaRestaurar;
+    var famR = familiasEnBackup(STATE.backupArchivo).find(function(f){ return f.id===STATE.backupFamiliaRestaurar; });
+    if(!famR){ render(); return; }
+    STATE.confirmState = {
+      message: '¿Restaurar la familia "'+(famR.nombre||famR.id)+'" desde este backup ('+famR.filas+' fila(s))? Se agregan o actualizan sus datos; no se borra nada y las demás familias no se tocan.',
+      action: 'restaurar-familia-confirmado',
+      textoConfirmar: 'Sí, restaurar'
+    };
+    render(); return;
+  }
+  if(action==='restaurar-familia-confirmado'){
+    var datosR = STATE.backupArchivo;
+    var familiaR = STATE.backupFamiliaRestaurar;
+    if(!datosR || !familiaR){ render(); return; }
     try{
-      await restaurarBackup(datosR);
+      var resultado = await restaurarFamilia(datosR, familiaR);
+      // La familia pudo haberse vuelto a crear: recargar la lista y mostrar la restaurada.
+      await cargarPerfil();
+      if(STATE.familias.some(function(f){ return f.id===familiaR; })) STATE.familiaSeleccionadaId = familiaR;
       await cargarTodo();
       STATE.saldosDirty = true;
-      STATE.backupMsg = { type:'ok', text:'Backup restaurado correctamente.' };
-    }catch(e){ STATE.dbError = 'No se pudo restaurar el backup: '+(e.message||e); }
+      var total = Object.keys(resultado||{}).reduce(function(s, t){ return s + (Number(resultado[t])||0); }, 0);
+      STATE.backupArchivo = null;
+      STATE.backupMsg = { type:'ok', text:'Familia restaurada: '+total+' fila(s) agregadas o actualizadas.' };
+    }catch(e){ STATE.backupMsg = { type:'err', text:'No se restauró nada: '+(e.message||e) }; }
     render(); return;
   }
 
@@ -5197,6 +5399,7 @@ async function handleAction(action, id){
     var reasignarA = document.getElementById('sub-delete-reasignar') ? document.getElementById('sub-delete-reasignar').value : '';
     try{
       if(sds.afectados > 0 && reasignarA){
+        verificarEscritura();
         await sb.from('movimientos').update({subcategoria_id: reasignarA}).eq('subcategoria_id', sds.id);
         STATE.movimientos.forEach(function(m){ if(m.subcategoriaId===sds.id) m.subcategoriaId = reasignarA; });
       } else if(sds.afectados > 0){

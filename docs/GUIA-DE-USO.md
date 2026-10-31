@@ -62,7 +62,7 @@ Al crear una categoría elegís su **Tratamiento en reportes**. Es la decisión 
 - **Dólares** — compras/ventas de dólares y saldos en USD.
 - **Importar** — carga masiva desde resúmenes de bancos.
 - **Gimnasio** — marcador de visitas.
-- **ABM** — categorías, subcategorías, centros de costo, reglas y backup.
+- **ABM** — categorías, subcategorías, centros de costo y reglas.
 
 ## 4. Configuración inicial (ABM)
 
@@ -72,7 +72,6 @@ Antes de cargar datos, armá la base en **ABM** (cada sección es una subpestañ
 2. **Categorías.** Nombre, color y tratamiento en reportes (ver [sección 2](#tratamiento-de-las-categorías-en-reportes)). Para que cada cuenta arranque con su saldo actual, creá una categoría **“Saldo Inicial”** y cargá un movimiento por cuenta con ese monto.
 3. **Subcategorías.** Se crean dentro de una categoría. También se pueden crear al vuelo escribiendo un nombre nuevo en el campo Subcategoría de un movimiento. Al borrar una subcategoría con movimientos, la app permite **reasignarlos** a otra o dejarlos sin subcategoría.
 4. **Reglas de categorización** (opcional, ahorra tiempo al importar): asociá un texto de contraparte (coincidencia parcial, sin importar mayúsculas) a una categoría/subcategoría. Ej.: “Barrientos” → Hogar › Limpieza.
-5. **Backup** — ver [sección 14](#14-backups).
 
 ## 5. Cargar movimientos
 
@@ -164,10 +163,12 @@ Un marcador entre usuarios: cada visita suma un punto, la meta es **2 por semana
 
 ## 14. Backups
 
-En **ABM › Backup**:
+Los backups los maneja **el soporte** (la cuenta superadmin), desde la pestaña **Administración**, que solo ve esa cuenta:
 
-- **Descargar backup completo (.json):** exporta todas las tablas.
-- **Restaurar desde un backup:** elegí un `.json` (descargado acá o uno de los backups diarios de Drive). **No borra** lo existente; agrega lo que falta. La app muestra una vista previa antes de confirmar.
+- **Descargar backup completo (.json):** exporta todas las familias (familias, miembros y sus datos).
+- **Restaurar una familia:** se elige un `.json` descargado de ahí (o uno de los backups diarios de Drive) y la familia a restaurar; las demás no se tocan. **No borra** lo existente: agrega lo que falta y actualiza lo que coincide. Es todo o nada: si algo no cierra, no se aplica ninguna fila.
+
+El soporte ve los datos de todas las familias **en solo lectura**, eligiendo cuál mirar con el selector de arriba.
 
 Además existe un **backup automático diario a Google Drive** (ver [INSTALACION-Y-OPERACION.md](INSTALACION-Y-OPERACION.md#backup-diario-a-google-drive)).
 

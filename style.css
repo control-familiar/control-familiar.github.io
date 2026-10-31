@@ -486,3 +486,12 @@ footer.small{ margin-top:28px; font-size:11px; color:var(--ink-soft); text-align
   table.tabla-movil tfoot, table.tabla-movil tfoot tr{ display:block; }
   table.tabla-movil tfoot td{ display:flex; justify-content:space-between; border-bottom:none; border-top:2px solid var(--accent); padding:8px 0 0; }
 }
+
+/* Selector de familia del superadmin (solo lectura): en la barra de arriba, al lado del avatar */
+.selector-familia{ display:flex; align-items:center; gap:6px; margin:0; color:var(--ink-soft); font-size:13px; }
+.selector-familia select{ max-width:220px; padding:6px 8px; font-size:13px; }
+.selector-familia-vacio{ color:var(--ink-soft); font-size:13px; }
+@media (max-width: 640px){
+  .selector-familia i{ display:none; }
+  .selector-familia select{ max-width:130px; }
+}
