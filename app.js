@@ -3612,47 +3612,50 @@ function mesLabelCorto(mesStr){
   return (NOMBRES_MES_CORTO[idx]||m[2])+' '+m[1].slice(2);
 }
 
-function donutChart(segments, size){
-  var strokeWidth = Math.round(size*0.16);
-  var total = segments.reduce(function(s,x){return s+x.value;},0);
-  if(total<=0) return '<div class="empty">Sin datos para graficar.</div>';
-  var r = (size - strokeWidth)/2;
-  var cx = size/2, cy = size/2;
-  var circumference = 2*Math.PI*r;
-  var offsetAcc = 0;
-  var circles = segments.filter(function(s){return s.value>0;}).map(function(s){
-    var pct = s.value/total;
-    var dash = pct*circumference;
-    var gap = circumference - dash;
-    var circle = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="'+strokeWidth+'" '+
-      'stroke-dasharray="'+dash.toFixed(2)+' '+gap.toFixed(2)+'" stroke-dashoffset="'+(-offsetAcc).toFixed(2)+'" transform="rotate(-90 '+cx+' '+cy+')"></circle>';
-    offsetAcc += dash;
-    return circle;
-  }).join('');
-  return '<svg viewBox="0 0 '+size+' '+size+'" width="'+size+'" height="'+size+'">'+circles+'</svg>';
-}
-
-function trendChart(meses, dataPorMes, width, height){
+// Tendencia del Resumen: barras de ingresos (verde) y egresos (coral) por mes, con el saldo arriba de cada mes.
+// opciones.seleccionados: meses resaltados (los demás, atenuados); opciones.accion: acción al tocar un mes.
+function trendChart(meses, dataPorMes, width, height, opciones){
+  opciones = opciones || {};
   if(!meses.length) return '<div class="empty">No hay suficientes datos para la tendencia mensual.</div>';
   var padding = 34;
   var chartW = width - padding*2;
-  var chartH = height - padding*2;
+  var chartH = height - padding*2 - 14; // lugar para el saldo arriba
+  var techo = padding + 14;
   var max = 1;
   meses.forEach(function(m){ var d=dataPorMes[m]||{ingreso:0,egreso:0}; max=Math.max(max,d.ingreso,d.egreso); });
   var n = meses.length;
   var groupW = chartW/n;
   var barW = Math.max(4, Math.min(16, groupW/3));
-  var svg = '<line x1="'+padding+'" y1="'+(padding+chartH)+'" x2="'+(width-padding)+'" y2="'+(padding+chartH)+'" stroke="#C7D6CD" stroke-width="1"></line>';
+  var sel = opciones.seleccionados || [];
+  var svg = '<line x1="'+padding+'" y1="'+(techo+chartH)+'" x2="'+(width-padding)+'" y2="'+(techo+chartH)+'" stroke="#C7D6CD" stroke-width="1"></line>';
   meses.forEach(function(m,i){
     var d = dataPorMes[m]||{ingreso:0,egreso:0};
+    var saldoMes = d.ingreso - d.egreso;
     var xBase = padding + i*groupW + groupW/2;
     var hIngreso = (d.ingreso/max)*chartH;
     var hEgreso = (d.egreso/max)*chartH;
-    svg += '<rect x="'+(xBase-barW-1.5)+'" y="'+(padding+chartH-hIngreso)+'" width="'+barW+'" height="'+hIngreso+'" fill="#2F9E6E" rx="3"></rect>';
-    svg += '<rect x="'+(xBase+1.5)+'" y="'+(padding+chartH-hEgreso)+'" width="'+barW+'" height="'+hEgreso+'" fill="#E0654B" rx="3"></rect>';
-    svg += '<text x="'+xBase+'" y="'+(height-12)+'" font-size="10" text-anchor="middle" fill="#71857A">'+esc(mesLabelCorto(m))+'</text>';
+    var atenuado = sel.length && sel.indexOf(m)===-1;
+    var titulo = mesLabelCorto(m)+': ingresos '+fmtMonto(d.ingreso)+', egresos '+fmtMonto(d.egreso)+', saldo '+fmtMontoSigno(saldoMes);
+    svg += '<g class="trend-mes'+(opciones.accion?' clickable':'')+'"'+(opciones.accion?' data-action="'+opciones.accion+'" data-id="'+m+'"':'')+' opacity="'+(atenuado?'0.4':'1')+'">'+
+      '<title>'+esc(titulo)+'</title>'+
+      '<rect x="'+(xBase-groupW/2)+'" y="'+padding+'" width="'+groupW+'" height="'+(chartH+14)+'" fill="transparent"></rect>'+
+      '<rect x="'+(xBase-barW-1.5)+'" y="'+(techo+chartH-hIngreso)+'" width="'+barW+'" height="'+hIngreso+'" fill="#2F9E6E" rx="3"></rect>'+
+      '<rect x="'+(xBase+1.5)+'" y="'+(techo+chartH-hEgreso)+'" width="'+barW+'" height="'+hEgreso+'" fill="#E0654B" rx="3"></rect>'+
+      (n<=12 ? '<text x="'+xBase+'" y="'+(techo+chartH-Math.max(hIngreso,hEgreso)-6)+'" font-size="9" text-anchor="middle" fill="'+(saldoMes>=0?'#2F9E6E':'#E0654B')+'">'+esc(fmtMontoCorto(saldoMes))+'</text>' : '')+
+      '<text x="'+xBase+'" y="'+(height-12)+'" font-size="10" text-anchor="middle" fill="#71857A"'+(sel.indexOf(m)!==-1?' font-weight="700"':'')+'>'+esc(mesLabelCorto(m))+'</text>'+
+    '</g>';
   });
   return '<svg viewBox="0 0 '+width+' '+height+'" width="100%" height="'+height+'" preserveAspectRatio="xMidYMid meet">'+svg+'</svg>';
+}
+// Monto con signo explícito (+/−): el color no es la única pista de si algo es a favor o en contra.
+function fmtMontoSigno(n){ n = Number(n)||0; return (n>0?'+':'')+fmtMonto(n); }
+// "+1,2 M", "−85 mil": para etiquetas chicas del gráfico.
+function fmtMontoCorto(n){
+  n = Number(n)||0;
+  var a = Math.abs(n), signo = n>0 ? '+' : (n<0 ? '−' : '');
+  if(a>=1e6) return signo+(a/1e6).toLocaleString('es-AR',{maximumFractionDigits:1})+' M';
+  if(a>=1e3) return signo+Math.round(a/1e3).toLocaleString('es-AR')+' mil';
+  return signo+Math.round(a);
 }
 
 function pad2(n){ return String(n).padStart(2,'0'); }
@@ -3781,7 +3784,7 @@ function renderGrillaMensual(movs, rango){
     '</tbody>' : '';
 
   return '<div style="overflow-x:auto">'+
-    '<table class="table"><thead><tr><th>Categoría</th>'+headerCols+'<th class="num">Total</th></tr></thead>'+
+    '<table class="table tabla-comparativa"><thead><tr><th>Categoría</th>'+headerCols+'<th class="num">Total</th></tr></thead>'+
     '<tbody>'+filasCategorias(idsNormales)+'</tbody>'+
     '<tbody>'+filaTotal('Total', totalesPorMesSinInversion, granTotalSinInversion)+'</tbody>'+
     seccionInversion+
@@ -3853,8 +3856,17 @@ function calcularTotalesResumenKpis(centroArr, categoriaArr, mesArr){
   var totalEgreso = neto(movsResto);
   var totalInversion = neto(movsInversion);
   var saldo = totalIngreso - totalEgreso - totalInversion;
+  // Vencimientos sin pagar del período (con su centro y categoría, si los tienen): lo que falta pagar.
+  var vencPendientes = (STATE.vencimientos||[]).filter(function(v){
+    if(v.estado!=='pendiente') return false;
+    if(centroArr.length && centroArr.indexOf(v.centroId)===-1) return false;
+    if(categoriaArr.length && categoriaArr.indexOf(v.categoriaId)===-1) return false;
+    if(mesArr.length && mesArr.indexOf((v.fecha||'').slice(0,7))===-1) return false;
+    return true;
+  });
   return { totalIngreso:totalIngreso, totalEgreso:totalEgreso, totalInversion:totalInversion, saldo:saldo, movsResto:movsResto,
-    pendientes:neto(movsPendientes), cantPendientes:movsPendientes.length };
+    pendientes:neto(movsPendientes), cantPendientes:movsPendientes.length,
+    vencPendientes:vencPendientes.reduce(function(s,v){ return s + (Number(v.monto)||0); },0), cantVencPendientes:vencPendientes.length };
 }
 // "2026-05" -> "2026-04". Para calcular a qué mes comparar cuando el filtro de Mes de Resumen
 // tiene un único mes elegido.
@@ -3878,6 +3890,12 @@ function resumenDeFiltros(f){
 // Los filtros por defecto: el mes actual, todo lo demás sin filtrar.
 function filtrosResumenPorDefecto(){ return {centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}; }
 
+var NOMBRES_MES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function mesLabelLargo(mesStr){
+  var p = (mesStr||'').split('-');
+  return p.length===2 ? NOMBRES_MES_LARGO[parseInt(p[1],10)-1]+' '+p[0] : mesStr;
+}
+
 function renderResumen(){
   var f = STATE.resumenFiltros || {centro:[], categoria:[], mes:[], vista:'categoria'};
 
@@ -3888,6 +3906,7 @@ function renderResumen(){
   var categoriaOptions = categoriasOrdenadas().map(function(c){ return {value:c.id, label:c.nombre}; });
   var meses = getMesesHastaHoy();
   var mesOptions = meses.map(function(m){ return {value:m, label:mesLabelCorto(m)}; });
+  var mesActual = fechaHoyISO().slice(0,7);
 
   var movsCentro = STATE.movimientos.filter(function(m){ return !f.centro.length || f.centro.indexOf(m.centroId)!==-1; });
 
@@ -3902,20 +3921,20 @@ function renderResumen(){
   function deltaHtml(valorActual, favorableSiSube, valorAnterior){
     if(valorAnterior===null || valorAnterior===undefined) return '';
     var diff = valorActual - valorAnterior;
-    if(Math.abs(diff) < 1) return '<div style="font-size:11px;margin-top:2px;color:var(--ink-soft)">= mes anterior</div>';
+    if(Math.abs(diff) < 1) return '<div class="kpi-delta" style="color:var(--ink-soft)">= mes anterior</div>';
     var subio = diff>0;
     var favorable = favorableSiSube ? subio : !subio;
     var color = favorable ? 'var(--accent)' : 'var(--danger)';
     var icono = subio ? 'bi-arrow-up-short' : 'bi-arrow-down-short';
-    return '<div class="mono" style="font-size:11px;margin-top:2px;color:'+color+'"><i class="bi '+icono+'"></i> '+fmtMonto(Math.abs(diff))+' vs. mes ant.</div>';
+    return '<div class="kpi-delta mono" style="color:'+color+'"><i class="bi '+icono+'"></i> '+(subio?'+':'−')+fmtMonto(Math.abs(diff))+'<span class="delta-txt"> vs. mes ant.</span></div>';
   }
   // Tasa de ahorro: más comparable entre meses que el Saldo en pesos solo, porque no depende de cuánto
   // ingresó ese mes puntual.
   var tasaAhorro = totalIngreso>0 ? Math.round(saldo/totalIngreso*100) : null;
 
   // "Estado actual": foto de hoy que junta números de otras pestañas (Saldos, USDT, Dólares,
-  // Flujo de Caja) -- a diferencia de las KPI cards de abajo, no depende de los filtros de Centro/
-  // Categoría/Mes de esta pantalla, porque son datos globales, no del recorte que se esté mirando.
+  // Flujo de Caja) -- a diferencia de lo de abajo, no depende de los filtros de esta pantalla.
+  // En el celular se muestra como una lista compacta (ver .estado-actual en style.css).
   var saldosGlobal = obtenerSaldos();
   var saldoUsdtCant = calcularSaldoUsdt();
   var valorUsdtArs = STATE.usdtCotizacionBid ? saldoUsdtCant*STATE.usdtCotizacionBid : null;
@@ -3923,105 +3942,123 @@ function renderResumen(){
   var valorUsdArs = STATE.dolarBlueCompra ? tenenciaUsd*STATE.dolarBlueCompra : null;
   var hayDolares = funcionActiva('dolares') && (STATE.movimientosUsd.length>0 || STATE.centros.some(centroAdmiteDolares));
   var capAhorro = capacidadAhorroPromedio('6m');
-  var estadoActualHtml = '<div class="card">'+
+  var estadoActualHtml = '<div class="card estado-actual">'+
     '<h3>Estado actual</h3>'+
-    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">La foto de hoy — no depende de los filtros de abajo.</div>'+
+    '<div class="estado-actual-sub">La foto de hoy — no depende de los filtros de abajo.</div>'+
     '<div class="summary-cards">'+
       '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-bank"></i></div><div class="label">Saldo total (Saldos)</div><div class="value">'+fmtMonto(saldosGlobal.totalGeneral)+'</div></div>'+
-      (funcionActiva('usdt') ? '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-coin"></i></div><div class="label">Tenencia USDT</div><div class="value">'+fmtCantidadUsdt(saldoUsdtCant)+' USDT'+(valorUsdtArs!==null?'<div class="mono" style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ '+fmtMonto(valorUsdtArs)+'</div>':'')+'</div></div>' : '')+
-      (hayDolares ? '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-currency-dollar"></i></div><div class="label">Tenencia dólares</div><div class="value">'+fmtUsd(tenenciaUsd)+(valorUsdArs!==null?'<div class="mono" style="font-size:12px;color:var(--ink-soft);font-weight:400">≈ '+fmtMonto(valorUsdArs)+' (blue)</div>':'')+'</div></div>' : '')+
-      '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-piggy-bank"></i></div><div class="label">Ahorro promedio / mes</div><div class="value">'+(capAhorro?fmtMonto(capAhorro.promedio):'—')+'</div>'+(capAhorro?'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">últimos 6 meses cerrados, sin '+esc(etiquetaInversion())+'</div>':'')+'</div>'+
+      (funcionActiva('usdt') ? '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-coin"></i></div><div class="label">Tenencia USDT</div><div class="value">'+fmtCantidadUsdt(saldoUsdtCant)+' USDT</div>'+(valorUsdtArs!==null?'<div class="kpi-nota mono">≈ '+fmtMonto(valorUsdtArs)+'</div>':'')+'</div>' : '')+
+      (hayDolares ? '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-currency-dollar"></i></div><div class="label">Tenencia dólares</div><div class="value">'+fmtUsd(tenenciaUsd)+'</div>'+(valorUsdArs!==null?'<div class="kpi-nota mono">≈ '+fmtMonto(valorUsdArs)+' (blue)</div>':'')+'</div>' : '')+
+      '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-piggy-bank"></i></div><div class="label">Ahorro promedio / mes</div><div class="value">'+(capAhorro?fmtMonto(capAhorro.promedio):'—')+'</div>'+(capAhorro?'<div class="kpi-nota">últimos 6 meses cerrados, sin '+esc(etiquetaInversion())+'</div>':'')+'</div>'+
     '</div>'+
   '</div>';
 
-  // Desglose por categoría o por centro de costo, según STATE.resumenFiltros.vista: total neto (ingresos - egresos), más
-  // cantidad de movimientos (para distinguir "un gasto grande puntual" de "muchos gastos chicos"). No incluye Sueldo (queda afuera de esta comparación, como las inversiones).
+  // Desglose por categoría o por centro de costo (según "Desglose por"): neto (ingresos - egresos) y
+  // cantidad de movimientos. No incluye Sueldo ni Inversión. Con un solo mes elegido, cada fila se compara
+  // con su promedio de los 3 meses anteriores.
+  function claveDe(m){ return f.vista === 'centro' ? (m.centroId||'') : (m.categoriaId||''); }
   var porGrupo = {};
   movsResto.forEach(function(m){
-    var key = f.vista === 'centro' ? (m.centroId||'') : (m.categoriaId||'');
+    var key = claveDe(m);
     if(!porGrupo[key]) porGrupo[key] = {monto:0, cant:0};
     porGrupo[key].monto += (Number(m.ingreso)||0) - (Number(m.egreso)||0);
     porGrupo[key].cant++;
   });
+  var promedioPrevio = null;
+  if(mesRef){
+    promedioPrevio = {};
+    var refParts = mesRef.split('-'), refDate = new Date(parseInt(refParts[0],10), parseInt(refParts[1],10)-1, 1);
+    [1,2,3].forEach(function(k){
+      calcularTotalesResumenKpis(f.centro, f.categoria, [mesOffset(refDate, -k)]).movsResto.forEach(function(m){
+        var key = claveDe(m);
+        promedioPrevio[key] = (promedioPrevio[key]||0) + ((Number(m.ingreso)||0) - (Number(m.egreso)||0))/3;
+      });
+    });
+  }
   var lista = Object.keys(porGrupo).map(function(k){
     var nombre = f.vista === 'centro' ? (k ? nombreCentro(k).split(' · ')[0] : 'Sin centro') : (k ? nombreCategoria(k) : 'Sin categoría');
-    return { nombre: nombre, monto: porGrupo[k].monto, cant: porGrupo[k].cant };
+    return { clave:k, nombre: nombre, monto: porGrupo[k].monto, cant: porGrupo[k].cant };
   }).filter(function(x){return x.monto!==0;}).sort(function(a,b){ return Math.abs(b.monto)-Math.abs(a.monto); });
   var maxBar = lista.length ? Math.abs(lista[0].monto) : 1;
 
-  function etiquetaCant(cant){ return ' <span style="color:var(--ink-soft);font-weight:400">('+cant+' mov.)</span>'; }
-  var bars = lista.map(function(x){
-    var pct = maxBar ? Math.round((Math.abs(x.monto)/maxBar)*100) : 0;
+  function etiquetaCant(cant){ return ' <span class="bar-cant">('+cant+' mov.)</span>'; }
+  // "↑ 20% vs. prom. 3 meses": sube el gasto = en contra (coral); sube el ingreso = a favor (verde).
+  function comparacionPromedio(x){
+    if(!promedioPrevio) return '';
+    var prom = promedioPrevio[x.clave]||0;
+    if(Math.abs(prom) < 1) return '<span class="bar-comp" style="color:var(--ink-soft)">nuevo vs. prom. 3 meses</span>';
+    var pct = Math.round((Math.abs(x.monto)-Math.abs(prom))/Math.abs(prom)*100);
+    if(pct===0) return '<span class="bar-comp" style="color:var(--ink-soft)">= prom. 3 meses</span>';
+    var favorable = (x.monto<0) ? pct<0 : pct>0;
+    return '<span class="bar-comp" style="color:'+(favorable?'var(--accent)':'var(--danger)')+'"><i class="bi '+(pct>0?'bi-arrow-up-short':'bi-arrow-down-short')+'"></i>'+(pct>0?'+':'−')+Math.abs(pct)+'% vs. prom. 3 meses</span>';
+  }
+  function filaBarra(x, max, accion){
+    var pct = max ? Math.round((Math.abs(x.monto)/max)*100) : 0;
     var claseColor = x.monto >= 0 ? 'ingreso' : 'egreso';
-    return '<div class="bar-row"><div class="name">'+esc(x.nombre)+etiquetaCant(x.cant)+'</div>'+
+    return '<div class="bar-row'+(accion?' clickable':'')+'"'+(accion?' data-action="resumen-ver-movimientos" data-id="'+esc(accion)+'" title="Ver estos movimientos"':'')+'>'+
+      '<div class="name"><span>'+esc(x.nombre)+etiquetaCant(x.cant)+'</span>'+(x.comp||'')+'</div>'+
       '<div class="bar-track"><div class="bar-fill '+claseColor+'-fill" style="width:'+pct+'%"></div></div>'+
-      '<div class="amt '+claseColor+'">'+fmtMonto(x.monto)+'</div></div>';
+      '<div class="amt '+claseColor+'">'+fmtMontoSigno(x.monto)+(accion?' <i class="bi bi-chevron-right bar-ir"></i>':'')+'</div></div>';
+  }
+  var bars = lista.map(function(x){
+    x.comp = comparacionPromedio(x);
+    var accion = x.clave ? (f.vista==='centro' ? 'cen:' : 'cat:')+x.clave : '';
+    return filaBarra(x, maxBar, accion);
   }).join('');
   var totalLista = lista.reduce(function(s,x){ return s+x.monto; },0);
-  var claseColorTotalLista = totalLista >= 0 ? 'ingreso' : 'egreso';
   var totalListaHtml = lista.length ? ''+
     '<div class="bar-row" style="border-top:2px solid var(--accent);border-bottom:none;margin-top:4px;padding-top:10px;font-weight:600">'+
       '<div class="name">Total</div><div class="bar-track"></div>'+
-      '<div class="amt '+claseColorTotalLista+'">'+fmtMonto(totalLista)+'</div>'+
+      '<div class="amt '+(totalLista>=0?'ingreso':'egreso')+'">'+fmtMontoSigno(totalLista)+'</div>'+
     '</div>' : '';
 
-  // Top contrapartes: mismo recorte que "Total por Categoría/Centro" (movsResto: sin TEC/Sueldo/Inversión)
-  // pero agrupado por proveedor en vez de por categoría -- suele ser más accionable ("Coto: -$65.000
-  // en 3 compras" dice más que "Supermercado: -$120.000").
+  // Top contrapartes: mismo recorte que "Total por Categoría/Centro" pero agrupado por contraparte (suele ser
+  // más accionable: "Coto: −$65.000 en 3 compras").
   var porProveedor = {};
   movsResto.forEach(function(m){
-    var key = (m.proveedor||'').trim() || 'Sin contraparte';
+    var key = (m.proveedor||'').trim() || '';
     if(!porProveedor[key]) porProveedor[key] = {monto:0, cant:0};
     porProveedor[key].monto += (Number(m.ingreso)||0) - (Number(m.egreso)||0);
     porProveedor[key].cant++;
   });
   var listaProveedores = Object.keys(porProveedor).map(function(k){
-    return { nombre:k, monto:porProveedor[k].monto, cant:porProveedor[k].cant };
+    return { clave:k, nombre:k||'Sin contraparte', monto:porProveedor[k].monto, cant:porProveedor[k].cant };
   }).filter(function(x){return x.monto!==0;}).sort(function(a,b){ return Math.abs(b.monto)-Math.abs(a.monto); }).slice(0,8);
   var maxBarProv = listaProveedores.length ? Math.max.apply(null, listaProveedores.map(function(x){return Math.abs(x.monto);})) : 1;
-  var barsProveedores = listaProveedores.map(function(x){
-    var pct = maxBarProv ? Math.round((Math.abs(x.monto)/maxBarProv)*100) : 0;
-    var claseColor = x.monto >= 0 ? 'ingreso' : 'egreso';
-    return '<div class="bar-row"><div class="name">'+esc(x.nombre)+etiquetaCant(x.cant)+'</div>'+
-      '<div class="bar-track"><div class="bar-fill '+claseColor+'-fill" style="width:'+pct+'%"></div></div>'+
-      '<div class="amt '+claseColor+'">'+fmtMonto(x.monto)+'</div></div>';
-  }).join('');
-
-  // Donut: top 8 + "Otros" (no incluye las inversiones, que ya tienen su propia tarjeta aparte). Usa el valor absoluto para el tamaño de cada porción (una torta no puede tener porciones negativas), pero muestra el monto real (con signo) en la leyenda.
-  var segmentos = lista.slice(0,8).map(function(x,i){ return {label:x.nombre, value:Math.abs(x.monto), montoReal:x.monto, color:PALETA_DONUT[i%PALETA_DONUT.length]}; });
-  var restoMonto = lista.slice(8).reduce(function(s,x){return s+x.monto;},0);
-  if(restoMonto!==0) segmentos.push({label:'Otros', value:Math.abs(restoMonto), montoReal:restoMonto, color:'#E1EEE7'});
-  var donutSvg = donutChart(segmentos, 160);
-  var leyenda = segmentos.filter(function(s){return s.value>0;}).map(function(s){
-    return '<div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px">'+
-      '<span style="width:10px;height:10px;border-radius:2px;background:'+s.color+';display:inline-block;flex-shrink:0"></span>'+
-      '<span>'+esc(s.label)+'</span><span class="mono '+(s.montoReal>=0?'ingreso':'egreso')+'">'+fmtMonto(s.montoReal)+'</span></div>';
-  }).join('');
+  var barsProveedores = listaProveedores.map(function(x){ return filaBarra(x, maxBarProv, x.clave ? 'prov:'+x.clave : ''); }).join('');
 
   // Tendencia mensual: las mismas cuentas que las tarjetas, mes por mes (respeta Centro/Categoría pero no
-  // el filtro de Mes: muestra todos). Ingresos = Total ingresos; Egresos = Total egresos + Inversión, así la
-  // distancia entre las dos barras es el Saldo de ese mes.
+  // el filtro de Mes: muestra todos, con los elegidos resaltados). Tocar un mes lo elige.
   var mesesTrend = meses.slice().sort();
   var dataPorMes = {};
   mesesTrend.forEach(function(mes){
     var t = calcularTotalesResumenKpis(f.centro, f.categoria, [mes]);
     dataPorMes[mes] = { ingreso: Math.max(0, t.totalIngreso), egreso: Math.max(0, t.totalEgreso + t.totalInversion) };
   });
-  var trendSvg = trendChart(mesesTrend, dataPorMes, 640, 220);
+  // En el celular, más angosto: el SVG se escala al ancho de la pantalla y así las letras quedan legibles.
+  var trendSvg = trendChart(mesesTrend, dataPorMes, esVistaMobile() ? 360 : 640, esVistaMobile() ? 200 : 230, { seleccionados: f.mes, accion: 'resumen-elegir-mes' });
 
-  // Filtros: debajo de "Estado actual" (que no depende de ellos) y encabezando todo lo que sí depende,
-  // agrupado en .resumen-filtrado. Se despliegan/colapsan con el encabezado: por defecto desplegados en
-  // escritorio y colapsados en el celular (ahí el encabezado muestra un resumen de lo aplicado).
+  // Filtros: debajo de "Estado actual" y encabezando todo lo que depende de ellos (.resumen-filtrado). Arriba,
+  // el período con flechas (lo que más se cambia). El resto se despliega/colapsa: desplegado en escritorio,
+  // colapsado en el celular; colapsado queda fijo arriba al hacer scroll, para no perder de vista qué se mira.
   var filtrosAbiertos = STATE.filtrosResumenAbiertos===null ? !esVistaMobile() : STATE.filtrosResumenAbiertos;
   var porDefecto = filtrosResumenPorDefecto();
   var filtrosCambiados = JSON.stringify(f.centro)!=='[]' || JSON.stringify(f.categoria)!=='[]' || f.vista!==porDefecto.vista ||
     JSON.stringify(f.mes.slice().sort())!==JSON.stringify(porDefecto.mes);
+  var ultimoMes = f.mes.length ? f.mes.slice().sort().pop() : null;
+  var etiquetaPeriodo = !f.mes.length ? 'Todos los meses' : (f.mes.length===1 ? mesLabelLargo(f.mes[0]) : f.mes.length+' meses');
+  var puedeAvanzar = ultimoMes ? ultimoMes < mesActual : false;
   var filtrosHtml = '<div class="card card-filtros filtros-resumen'+(filtrosAbiertos?' abierto':'')+'">'+
+    '<div class="resumen-periodo">'+
+      '<button type="button" class="periodo-flecha" data-action="resumen-mes" data-id="-1" aria-label="Mes anterior"><i class="bi bi-chevron-left"></i></button>'+
+      '<div class="periodo-label">'+esc(etiquetaPeriodo)+'</div>'+
+      '<button type="button" class="periodo-flecha" data-action="resumen-mes" data-id="+1" aria-label="Mes siguiente"'+(puedeAvanzar?'':' disabled')+'><i class="bi bi-chevron-right"></i></button>'+
+    '</div>'+
     '<div class="filtros-resumen-encabezado">'+
       '<button type="button" class="filtros-resumen-toggle" data-action="toggle-filtros-resumen" aria-expanded="'+filtrosAbiertos+'">'+
         '<i class="bi bi-funnel"></i>'+
         '<span class="filtros-resumen-textos"><span class="filtros-resumen-titulo">Según estos filtros</span>'+
-          '<span class="filtros-resumen-detalle">'+resumenDeFiltros(f).map(esc).join(' · ')+'</span></span>'+
+          '<span class="filtros-resumen-detalle">'+resumenDeFiltros(f).slice(1).map(esc).join(' · ')+'</span></span>'+
         '<i class="bi '+(filtrosAbiertos?'bi-chevron-up':'bi-chevron-down')+' filtros-resumen-chevron"></i>'+
       '</button>'+
       (filtrosCambiados ? '<button type="button" class="link" data-action="restablecer-filtros-resumen" style="font-size:12px;white-space:nowrap">Volver al mes actual</button>' : '')+
@@ -4037,38 +4074,69 @@ function renderResumen(){
     '</div>' : '')+
   '</div>';
 
+  // Lo que falta pagar del período: movimientos con fecha futura + vencimientos sin pagar.
+  var porPagar = actual.pendientes + actual.vencPendientes;
+  var cantPorPagar = actual.cantPendientes + actual.cantVencPendientes;
+  var porPagarHtml = cantPorPagar ? '<div class="kpi-nota">+ '+fmtMonto(porPagar)+' por pagar · <button type="button" class="link" data-action="ir-a-vencimientos" style="font-size:inherit;padding:0">ver Vencimientos</button></div>' : '';
+
+  // Saldo del período como protagonista, con una barra que compara lo que entró con lo que salió.
+  var salidas = totalEgreso + totalInversion;
+  var maxBarra = Math.max(totalIngreso, salidas, 1);
+  var kpisHtml = ''+
+    '<div class="card kpi-saldo">'+
+      '<div class="kpi-saldo-cabeza">'+
+        '<div><div class="label">Saldo del período</div>'+
+          '<div class="kpi-saldo-valor '+(saldo>=0?'ingreso':'egreso')+'">'+fmtMontoSigno(saldo)+'</div>'+
+          (tasaAhorro!==null?'<div class="kpi-nota">'+(tasaAhorro>=0?'ahorraste el ':'gastaste un ')+Math.abs(tasaAhorro)+'% '+(tasaAhorro>=0?'del ingreso':'más de lo que entró')+'</div>':'')+
+          deltaHtml(saldo, true, anterior?anterior.saldo:null)+
+        '</div>'+
+      '</div>'+
+      '<div class="kpi-saldo-barras">'+
+        '<div class="kpi-barra"><span>Entró</span><div class="bar-track"><div class="bar-fill ingreso-fill" style="width:'+Math.round(totalIngreso/maxBarra*100)+'%"></div></div><span class="mono">'+fmtMonto(totalIngreso)+'</span></div>'+
+        '<div class="kpi-barra"><span>Salió</span><div class="bar-track"><div class="bar-fill egreso-fill" style="width:'+Math.round(Math.max(0,salidas)/maxBarra*100)+'%"></div></div><span class="mono">'+fmtMonto(salidas)+'</span></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="kpi-chicas">'+
+      '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-arrow-up"></i></div><div class="label">Ingresos</div><div class="value ingreso">'+fmtMonto(totalIngreso)+'</div>'+deltaHtml(totalIngreso, true, anterior?anterior.totalIngreso:null)+'</div>'+
+      '<div class="summary-card"><div class="kpi-ic kpi-ic-danger"><i class="bi bi-arrow-down"></i></div><div class="label">Egresos</div><div class="value egreso">'+fmtMonto(totalEgreso)+'</div>'+deltaHtml(totalEgreso, false, anterior?anterior.totalEgreso:null)+porPagarHtml+'</div>'+
+      '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-building"></i></div><div class="label">'+esc(etiquetaInversion())+'</div><div class="value egreso">'+fmtMonto(totalInversion)+'</div></div>'+
+    '</div>';
+
+  // Sin nada en el período: un aviso en vez de tarjetas en $0 (la tendencia y la comparativa siguen abajo).
+  var periodoVacio = !totalIngreso && !totalEgreso && !totalInversion && !lista.length && !cantPorPagar;
+  var vacioHtml = '<div class="card resumen-vacio">'+
+    '<i class="bi bi-calendar2-x"></i>'+
+    '<div><strong>No hay movimientos en '+esc(f.mes.length===1 ? mesLabelLargo(f.mes[0]) : 'este período')+'</strong>'+
+      '<div class="kpi-nota">Probá con otro mes o cargá el primero.</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+        '<button type="button" class="secondary" data-action="resumen-mes" data-id="-1"><i class="bi bi-chevron-left"></i> Mes anterior</button>'+
+        '<button type="button" data-action="abrir-efectivo"><i class="bi bi-plus-lg"></i> Cargar efectivo</button>'+
+      '</div></div>'+
+  '</div>';
+
+  var desgloseHtml = ''+
+  '<div class="card">'+
+    '<h3>Total por '+(f.vista==='centro'?'Centro de Costo':'Categoría')+'</h3>'+
+    '<div class="card-nota">Ingresos menos egresos de cada '+(f.vista==='centro'?'centro':'categoría')+' (+ a favor, − en contra), sin TEC, '+esc(etiquetaInversion())+' ni Sueldo.'+(promedioPrevio?' Comparado con el promedio de los 3 meses anteriores.':'')+' Tocá una fila para ver sus movimientos.</div>'+
+    (lista.length ? bars+totalListaHtml : '<div class="empty">No hay movimientos en este período.</div>')+
+  '</div>'+
+  '<div class="card">'+
+    '<h3>Top contrapartes</h3>'+
+    '<div class="card-nota">Las 8 con mayor movimiento neto del período (mismo recorte que arriba). Tocá una para ver sus movimientos.</div>'+
+    (listaProveedores.length ? barsProveedores : '<div class="empty">No hay movimientos en este período.</div>')+
+  '</div>';
+
   return alertaVencimientosProximosHtml()+
   estadoActualHtml+
   '<div class="resumen-filtrado">'+
   filtrosHtml+
-  '<div class="summary-cards">'+
-    '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-arrow-up"></i></div><div class="label">Total ingresos</div><div class="value ingreso">'+fmtMonto(totalIngreso)+'</div>'+deltaHtml(totalIngreso, true, anterior?anterior.totalIngreso:null)+'</div>'+
-    '<div class="summary-card"><div class="kpi-ic kpi-ic-danger"><i class="bi bi-arrow-down"></i></div><div class="label">Total egresos</div><div class="value egreso">'+fmtMonto(totalEgreso)+'</div>'+deltaHtml(totalEgreso, false, anterior?anterior.totalEgreso:null)+
-      (actual.cantPendientes ? '<div style="font-size:11px;margin-top:2px;color:var(--ink-soft)">+ '+fmtMonto(actual.pendientes)+' pendientes (<button type="button" class="link" data-action="ir-a-vencimientos" style="font-size:11px;padding:0">ver Vencimientos</button>)</div>' : '')+'</div>'+
-    '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-building"></i></div><div class="label">'+esc(etiquetaInversion())+'</div><div class="value egreso">'+fmtMonto(totalInversion)+'</div></div>'+
-    '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-wallet2"></i></div><div class="label">Saldo</div><div class="value">'+fmtMonto(saldo)+'</div>'+(tasaAhorro!==null?'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">'+tasaAhorro+'% del ingreso</div>':'')+deltaHtml(saldo, true, anterior?anterior.saldo:null)+'</div>'+
-  '</div>'+
+  (periodoVacio ? vacioHtml : kpisHtml)+
   '<div class="card">'+
-    '<h3>Tendencia mensual (Ingresos vs Egresos)</h3>'+
-    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Cada mes, calculado igual que las tarjetas de arriba: Ingresos = Sueldo; Egresos = gastos netos + '+esc(etiquetaInversion())+'. La diferencia es el Saldo del mes. Respeta los filtros de Centro y Categoría.</div>'+
+    '<h3>Tendencia mensual</h3>'+
+    '<div class="card-nota">Cada mes, igual que las tarjetas: verde = ingresos (Sueldo), coral = egresos + '+esc(etiquetaInversion())+'; arriba, el saldo. Tocá un mes para verlo. Respeta los filtros de Centro y Categoría.</div>'+
     trendSvg+
   '</div>'+
-  '<div class="card">'+
-    '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">'+
-      '<div style="flex-shrink:0">'+donutSvg+'</div>'+
-      '<div style="flex:1;min-width:180px">'+(leyenda||'<div class="empty">Sin datos para graficar.</div>')+'</div>'+
-    '</div>'+
-  '</div>'+
-  '<div class="card">'+
-    '<h3>Total por '+(f.vista==='centro'?'Centro de Costo':'Categoría')+'</h3>'+
-    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">Ingresos menos egresos de cada '+(f.vista==='centro'?'centro':'categoría')+'. Verde = neto a favor (ingreso), coral = neto en contra (egreso). No incluye TEC (transferencias entre cuentas), '+esc(etiquetaInversion())+' ni Sueldo (quedan afuera de esta comparación).</div>'+
-    (lista.length ? bars+totalListaHtml : '<div class="empty">Todavía no hay movimientos cargados.</div>')+
-  '</div>'+
-  '<div class="card">'+
-    '<h3>Top contrapartes</h3>'+
-    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">Las 8 contrapartes con mayor movimiento neto en el período filtrado (mismo recorte que "Total por '+(f.vista==='centro'?'Centro de Costo':'Categoría')+'" de arriba: sin TEC, Sueldo ni '+esc(etiquetaInversion())+').</div>'+
-    (listaProveedores.length ? barsProveedores : '<div class="empty">Todavía no hay movimientos cargados.</div>')+
-  '</div>'+
+  (periodoVacio ? '' : desgloseHtml)+
   '<div class="card">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">'+
       '<h3 style="margin-bottom:0">Comparativa mensual por categoría</h3>'+
@@ -4086,7 +4154,7 @@ function renderResumen(){
         '<option value="anio" '+(STATE.grillaRango==='anio'?'selected':'')+'>Este año</option>'+
       '</select></div>'+
     '</div>'+
-    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">Ingresos menos egresos por categoría, mes a mes'+(f.centro.length?' (Centro de Costo: '+f.centro.map(function(cid){ return esc(nombreCentro(cid).split(' · ')[0]); }).join(', ')+')':'')+'. Verde = neto a favor, coral = neto en contra. No incluye TEC, Solo control ni Sueldo. Las categorías de tipo Inversión van aparte, debajo del Total. Ignora el filtro de Mes/Categoría de arriba (usa el selector de rango de acá al lado).</div>'+
+    '<div class="card-nota">Ingresos menos egresos por categoría, mes a mes'+(f.centro.length?' (Centro de Costo: '+f.centro.map(function(cid){ return esc(nombreCentro(cid).split(' · ')[0]); }).join(', ')+')':'')+'. No incluye TEC, Solo control ni Sueldo; Inversión va aparte, debajo del Total. Usa su propio rango (acá al lado), no el Mes ni la Categoría de arriba.</div>'+
     renderGrillaMensual(movsCentro, STATE.grillaRango)+
   '</div>'+
   '</div>'; // .resumen-filtrado
@@ -5397,7 +5465,7 @@ function getMovFormValues(){
 // datos tiene que sumarse acá para que el superadmin la vea.
 var ACCIONES_LECTURA = ['mov-pagina-anterior', 'mov-pagina-siguiente', 'ir-a-vencimientos', 'ir-a-movimientos-centro',
   'ir-a-reglas', 'reglas-pagina-anterior', 'reglas-pagina-siguiente', 'cancel-edit', 'confirm-yes', 'confirm-no',
-  'limpiar-filtros-mov', 'toggle-filtros-mov', 'toggle-filtros-resumen', 'restablecer-filtros-resumen', 'toggle-grupo-tarjeta-mov', 'toggle-multiselect', 'multiselect-limpiar',
+  'limpiar-filtros-mov', 'toggle-filtros-mov', 'toggle-filtros-resumen', 'restablecer-filtros-resumen', 'resumen-mes', 'resumen-elegir-mes', 'resumen-ver-movimientos', 'toggle-grupo-tarjeta-mov', 'toggle-multiselect', 'multiselect-limpiar',
   'refrescar-incompletos', 'recalcular-saldos', 'exportar-movimientos-excel', 'ver-comprobante',
   'actualizar-cotizacion-usdt', 'actualizar-dolar-blue', 'toggle-usdt-opcionales',
   'toggle-menu-movil', 'cerrar-menu-movil', 'toggle-menu-usuario', 'set-tema-color', 'toggle-tema', 'cerrar-sesion',
@@ -5832,6 +5900,33 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='restablecer-filtros-resumen'){ STATE.resumenFiltros = filtrosResumenPorDefecto(); render(); return; }
+  // Flechas del período: un mes para atrás o para adelante (no más allá del mes actual).
+  if(action==='resumen-mes'){
+    var fr = STATE.resumenFiltros;
+    var mesActualR = fechaHoyISO().slice(0,7);
+    var baseR = fr.mes.length ? fr.mes.slice().sort().pop() : mesActualR;
+    var partesR = baseR.split('-');
+    var nuevoR = mesOffset(new Date(parseInt(partesR[0],10), parseInt(partesR[1],10)-1, 1), id==='+1' ? 1 : -1);
+    fr.mes = [nuevoR > mesActualR ? mesActualR : nuevoR];
+    render(); return;
+  }
+  // Tocar un mes de la Tendencia lo elige en los filtros.
+  if(action==='resumen-elegir-mes'){ STATE.resumenFiltros.mes = [id]; render(); return; }
+  // Tocar una categoría, centro o contraparte del Resumen lleva a Movimientos con ese mismo recorte.
+  if(action==='resumen-ver-movimientos'){
+    var frm = STATE.resumenFiltros;
+    var partesV = String(id||'').split(':');
+    var tipoV = partesV.shift(), valorV = partesV.join(':');
+    STATE.filtros = { centro: frm.centro.slice(), categoria: frm.categoria.slice(), subcategoria:[], mes: frm.mes.slice(),
+      texto:'', soloIncompletos:false, soloTarjeta:false };
+    if(tipoV==='cat') STATE.filtros.categoria = [valorV];
+    if(tipoV==='cen') STATE.filtros.centro = [valorV];
+    if(tipoV==='prov') STATE.filtros.texto = valorV;
+    STATE.incompletosSnapshotIds = null;
+    STATE.movPaginaActual = 1;
+    STATE.activeTab = 'movimientos';
+    render(); return;
+  }
 
   // ---- MENÚ MÓVIL ----
   if(action==='toggle-menu-movil'){ STATE.menuMovilAbierto = !STATE.menuMovilAbierto; render(); return; }

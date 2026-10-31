@@ -24,7 +24,7 @@ describe('Resumen: filtros', () => {
     expect(html.indexOf('Estado actual')).toBeLessThan(html.indexOf('Según estos filtros'));
     const filtrado = app.querySelector('.resumen-filtrado');
     expect(filtrado.firstElementChild.className).toContain('filtros-resumen');
-    expect(filtrado.textContent).toContain('Total ingresos');
+    expect(filtrado.textContent).toContain('Tendencia mensual');
     expect(filtrado.textContent).not.toContain('Estado actual');
   });
 
@@ -60,7 +60,8 @@ describe('Resumen: filtros', () => {
     win.STATE.resumenFiltros.centro = ['c-ef'];
     win.STATE.resumenFiltros.mes = [];
     win.render();
-    expect(win.document.querySelector('.filtros-resumen-detalle').textContent).toContain('Todos los meses');
+    expect(win.document.querySelector('.periodo-label').textContent).toBe('Todos los meses');
+    expect(win.document.querySelector('.filtros-resumen-detalle').textContent).toContain('EF');
     await win.handleAction('restablecer-filtros-resumen');
     expect(win.STATE.resumenFiltros.centro).toEqual([]);
     expect(win.STATE.resumenFiltros.mes).toEqual([win.fechaHoyISO().slice(0, 7)]);

@@ -45,12 +45,12 @@ describe('Resumen: indicadores', () => {
     expect(t.movsResto.find(m => m.id === 'u1').egreso).toBe(20000);
   });
 
-  it('la tarjeta de Total egresos avisa lo pendiente del período', () => {
+  it('la tarjeta de Egresos avisa lo que falta pagar del período', () => {
     win.STATE.activeTab = 'resumen';
     win.STATE.resumenFiltros.mes = ['2026-10'];
     win.render();
-    const card = [...win.document.querySelectorAll('.summary-card')].find(c => c.textContent.includes('Total egresos'));
-    expect(card.textContent).toContain('+ 30.000,00 pendientes');
+    const card = [...win.document.querySelectorAll('.kpi-chicas .summary-card')].find(c => c.textContent.includes('Egresos'));
+    expect(card.textContent).toContain('+ 30.000,00 por pagar');
     expect(card.querySelector('[data-action="ir-a-vencimientos"]')).not.toBe(null);
   });
 

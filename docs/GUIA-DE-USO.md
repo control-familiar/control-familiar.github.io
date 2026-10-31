@@ -131,13 +131,14 @@ En **Resumen** aparece un aviso con los vencimientos próximos.
 
 ## 8. Resumen
 
-- **Estado actual:** foto de hoy (saldos, ahorro, tenencia en USDT y dólares). No depende de los filtros.
-- **Filtros:** Centro, Categoría y Mes (varios a la vez). Por defecto, el mes actual. Los totales se pueden ver por **Categoría** o por **Centro**.
-- **Total ingresos / Total egresos / Inversión / Saldo:** ingresos = lo de categorías *Sueldo*; egresos = gastos netos del resto (sin TEC ni Solo control); Inversión aparte; Saldo = ingresos − egresos − Inversión. Cuentan solo los movimientos **hasta hoy**: lo que tiene fecha futura en el período se avisa debajo de Total egresos ("+ $X pendientes"). Los gastos en dólares suman pasados a pesos al dólar blue de hoy.
-- **Tendencia mensual:** las mismas cuentas, mes por mes (Egresos incluye Inversión, así la distancia entre las barras es el Saldo de cada mes).
-- **Total por categoría/centro:** neto (ingresos − egresos). Verde = a favor, coral = en contra. Excluye TEC, Solo control, Inversión y Sueldo; incluye los gastos en dólares (en pesos).
-- **Top contrapartes:** las 8 con mayor movimiento neto del período.
-- **Comparativa mensual por categoría:** neto por categoría, mes a mes (con rango configurable).
+- **Estado actual:** la foto de hoy (saldo total, tenencia en USDT y dólares, ahorro promedio). No depende de los filtros. En el celular se ve como una lista.
+- **Período y filtros:** debajo de Estado actual. Arriba, el mes con flechas **‹ ›** para pasar de un mes a otro. Debajo, "Según estos filtros" con el resumen de lo aplicado (centro, categoría, desglose); tocándolo se despliegan los filtros (Centro, Categoría, Mes —varios a la vez— y Desglose por categoría o centro). En la computadora arrancan desplegados y en el celular plegados, y plegados quedan fijos arriba al hacer scroll. **Volver al mes actual** deshace los cambios. Todo lo que está debajo (con la línea verde al costado) responde a estos filtros.
+- **Saldo del período:** lo que te quedó (ingresos − egresos − Inversión), con el % ahorrado del ingreso, la diferencia con el mes anterior y una barra de lo que entró y lo que salió. Abajo, **Ingresos** (categorías *Sueldo*), **Egresos** (gastos netos del resto, sin TEC ni Solo control) e **Inversión**. Cuentan solo los movimientos hasta hoy; debajo de Egresos se avisa lo que **falta pagar** del período (movimientos con fecha futura y vencimientos sin pagar). Los gastos en dólares suman pasados a pesos al dólar blue de hoy.
+- **Tendencia mensual:** ingresos (verde) y egresos + Inversión (coral) de cada mes, con el saldo arriba. Tocá un mes para verlo.
+- **Total por categoría/centro:** neto de cada una (+ a favor, − en contra), sin TEC, Solo control, Inversión ni Sueldo. Con un solo mes elegido, cada fila se compara con su promedio de los 3 meses anteriores. **Tocá una fila** para ver esos movimientos.
+- **Top contrapartes:** las 8 con mayor movimiento neto del período. También se tocan para ver sus movimientos.
+- **Comparativa mensual por categoría:** neto por categoría, mes a mes, con su propio rango. En el celular se desliza de costado con la categoría fija.
+- Si el período no tiene movimientos, en vez de tarjetas en $0 aparece un aviso con accesos a otro mes o a cargar efectivo.
 
 ## 9. Saldos
 
