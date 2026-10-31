@@ -68,6 +68,72 @@ describe('procesarTexto (movimientos de cuenta, ej. Mercado Pago)', () => {
   });
 });
 
+// Estructura real de lo copiado de Actividad de Mercado Pago (con nombres y montos inventados).
+describe('parseMercadoPago (Actividad)', () => {
+  const raw = [
+    '30 de octubre',
+    'Juana Perez', '11:38', 'Juana Perez', 'Juana Perez', 'Transferencia recibida', 'Aprobado', '+', '$', '13.500',
+    'Kiosco Uno', '07:42', 'Kiosco Uno', 'Kiosco Uno', 'Pago en tienda física', 'Dinero disponible', 'Aprobado', '-', '$', '15.100',
+    '29 de octubre',
+    'Pedro Gomez', '18:32', 'Pedro GomezPedro Gomez', 'Pedro Gomez', 'Transferencia enviada', 'Dinero disponible', 'Aprobado', '-', '$', '300.000',
+    'Almacen Dos', '08:51', 'Almacen DosAlmacen Dos', 'Almacen Dos', 'Pago en tienda física', 'Mastercard crédito', 'Aprobado', '-', '$', '35.034', ',', '89',
+    '27 de octubre',
+    'Tienda Online', '20:03', 'Tienda OnlineTienda Online', 'Tienda Online', 'Devolución de dinero', '+', '$', '79.900',
+    'Tienda Online', '19:57', 'Tienda OnlineTienda Online', 'Tienda Online', 'Compra', 'Mastercard crédito', 'Devuelto', '-', '$', '79.900',
+    'Musica Online', '02:11', 'Musica OnlineMusica Online', 'Musica Online', 'Pago', 'Dinero disponible', 'Aprobado', '-', 'US$', '0', ',', '99',
+    'Kiosco Uno', '01:10', 'Kiosco Uno', 'Kiosco Uno', 'Pago en tienda física', 'Dinero disponible', 'Aprobado', '-', '$', '1.250', ',', '50',
+  ].join('\n');
+
+  it('arma los movimientos de la cuenta y omite tarjeta, devolución con su compra y dólares', () => {
+    const restoreNow = mockNow(win, new win.Date(2026, 9, 31));
+    try {
+      const res = win.parseMercadoPago(raw);
+      expect(res.rows).toEqual([
+        { fecha: '30-10-26', proveedor: 'Juana Perez', tipo: 'Transferencia recibida', monto: 13500, ingreso: '13.500,00', egreso: '' },
+        { fecha: '30-10-26', proveedor: 'Kiosco Uno', tipo: 'Pago en tienda física', monto: -15100, ingreso: '', egreso: '15.100,00' },
+        { fecha: '29-10-26', proveedor: 'Pedro Gomez', tipo: 'Transferencia enviada', monto: -300000, ingreso: '', egreso: '300.000,00' },
+        { fecha: '27-10-26', proveedor: 'Kiosco Uno', tipo: 'Pago en tienda física', monto: -1250.5, ingreso: '', egreso: '1.250,50' },
+      ]);
+      expect(res.omitidas).toBe(4);
+      expect(res.omitidasTexto).toContain('1 con tarjeta de crédito');
+      expect(res.omitidasTexto).toContain('2 entre compras devueltas y sus devoluciones');
+      expect(res.omitidasTexto).toContain('1 en dólares');
+    } finally {
+      restoreNow();
+    }
+  });
+
+  it('una devolución sin compra devuelta al lado entra como ingreso', () => {
+    const restoreNow = mockNow(win, new win.Date(2026, 9, 31));
+    try {
+      const solo = ['27 de octubre', 'Tienda Online', '20:03', 'Tienda Online', 'Tienda Online', 'Devolución de dinero', '+', '$', '5.000'].join('\n');
+      expect(win.parseMercadoPago(solo).rows).toEqual([
+        { fecha: '27-10-26', proveedor: 'Tienda Online', tipo: 'Devolución de dinero', monto: 5000, ingreso: '5.000,00', egreso: '' },
+      ]);
+    } finally {
+      restoreNow();
+    }
+  });
+
+  it('sin año en el encabezado, una fecha posterior a hoy es del año anterior', () => {
+    const restoreNow = mockNow(win, new win.Date(2027, 0, 5));
+    try {
+      const dic = ['28 de diciembre', 'Juana Perez', '11:38', 'Juana Perez', 'Juana Perez', 'Transferencia recibida', 'Aprobado', '+', '$', '100'].join('\n');
+      expect(win.parseMercadoPago(dic).rows[0].fecha).toBe('28-12-26');
+    } finally {
+      restoreNow();
+    }
+  });
+
+  it('sigue aceptando lo copiado de Movimientos (formato anterior)', () => {
+    const viejo = ['9 de agosto', 'Disponible', '$48.765,44', '10:30', 'Juan Perez', 'Transferencia enviada', '-$1.234,56'].join('\n');
+    expect(win.parseMercadoPago(viejo).rows).toEqual([{
+      fecha: '09-08-' + win.anioActualCorto(), proveedor: 'Juan Perez', tipo: 'Transferencia enviada',
+      monto: -1234.56, ingreso: '', egreso: '1.234,56',
+    }]);
+  });
+});
+
 // Fixtures armados a partir de resúmenes reales de Santander y Nación (misma estructura de línea
 // en los dos bancos: "dd/mm/aa detalle  [C.NN/MM]  comprobante  monto"), con comercios inventados y
 // montos cambiados para no dejar información financiera real en un repo público — la estructura
