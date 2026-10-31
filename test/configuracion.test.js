@@ -121,7 +121,8 @@ describe('Configuración: la familia no la ve ni la edita (C1, S4)', () => {
     win.STATE.activeTab = 'abm';
     win.render();
     expect(win.document.querySelector('[id^="cfg-"]')).toBe(null);
+    const llamadasAntes = sbMock.calls.length; // la carga ya generó los vencimientos recurrentes
     await win.handleAction('config-guardar', 'arca_cuit');
-    expect(sbMock.calls).toHaveLength(0);
+    expect(sbMock.calls.slice(llamadasAntes)).toHaveLength(0);
   });
 });

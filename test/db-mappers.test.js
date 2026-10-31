@@ -82,9 +82,20 @@ describe('movimiento', () => {
 
 describe('vencimiento', () => {
   it('toDbVencimiento -> fromDbVencimiento conserva los datos, con estado por defecto "pendiente"', () => {
-    const venc = { id: 'v1', concepto: 'Tarjeta Visa', fecha: '2026-08-15', monto: 5000, centroId: 'c1', estado: 'pendiente' };
+    const venc = { id: 'v1', concepto: 'Tarjeta Visa', fecha: '2026-08-15', monto: 5000, centroId: 'c1',
+      categoriaId: 'cat1', subcategoriaId: 'sub1', estado: 'salteado', recurrenteId: 'r1', periodo: '2026-08-01' };
     expect(win.fromDbVencimiento(win.toDbVencimiento(venc))).toEqual(venc);
-    expect(win.toDbVencimiento({ id: 'v1', concepto: 'X', fecha: '2026-08-15', monto: 100 }).estado).toBe('pendiente');
+    const suelto = win.toDbVencimiento({ id: 'v1', concepto: 'X', fecha: '2026-08-15', monto: 100 });
+    expect(suelto).toMatchObject({ estado: 'pendiente', categoria_id: null, recurrente_id: null, periodo: null });
+  });
+
+  it('vencimiento recurrente: los meses van como aaaa-mm en la app y día 1 en la base; generado_hasta no se manda', () => {
+    const rec = { id: 'r1', concepto: 'Patín', monto: 25000, dia: 10, centroId: 'c1', categoriaId: 'cat1', subcategoriaId: '',
+      desde: '2026-03', hasta: '' };
+    const fila = win.toDbVencRecurrente(rec);
+    expect(fila).toMatchObject({ desde: '2026-03-01', hasta: null, dia: 10, subcategoria_id: null });
+    expect(fila).not.toHaveProperty('generado_hasta');
+    expect(win.fromDbVencRecurrente(Object.assign({ generado_hasta: '2026-10-01' }, fila))).toEqual(rec);
   });
 });
 

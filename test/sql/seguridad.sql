@@ -21,8 +21,8 @@ create temp table resultado_tests (n serial, chequeo text, resultado text defaul
 do $tests$
 declare
   -- Tablas de datos de cada familia (todas con familia_id)
-  tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
-                         'deudas', 'usdt_movimientos', 'facturas',
+  tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos_recurrentes',
+                         'vencimientos', 'deudas', 'usdt_movimientos', 'facturas',
                          'familia_config', 'familia_importadores_ocultos', 'arca_ta', 'reglas_categorizacion'];
   t text;
   n int;
@@ -36,6 +36,8 @@ declare
   fa uuid; fb uuid;
   cen_a uuid; cat_a uuid; sub_a uuid; mov_a uuid;
   cen_b uuid; cat_b uuid; sub_b uuid; mov_b uuid;
+  rec_a uuid; rec_b uuid;
+  hace2 date := (date_trunc('month', current_date) - interval '2 months')::date;  -- mes de hace dos meses (día 1)
   nuevo uuid;
   fc uuid := gen_random_uuid();  -- familia que no existe (restaurar una familia borrada)
   resultado jsonb;
@@ -65,6 +67,11 @@ begin
       values (fa, current_date, cen_a, cat_a, sub_a, 100) returning id into mov_a;
     insert into public.movimientos (familia_id, fecha, centro_id, categoria_id, subcategoria_id, egreso)
       values (fb, current_date, cen_b, cat_b, sub_b, 200) returning id into mov_b;
+    -- Recurrentes: el de A vence el 31 (en los meses más cortos, el último día) desde hace dos meses.
+    insert into public.vencimientos_recurrentes (familia_id, concepto, dia, desde, centro_id, categoria_id)
+      values (fa, 'Rec A', 31, hace2, cen_a, cat_a) returning id into rec_a;
+    insert into public.vencimientos_recurrentes (familia_id, concepto, dia, desde, centro_id)
+      values (fb, 'Rec B', 10, hace2, cen_b) returning id into rec_b;
     insert into public.vencimientos (familia_id, concepto, fecha, centro_id) values
       (fa, 'Venc A', current_date, cen_a), (fb, 'Venc B', current_date, cen_b);
     insert into public.deudas (familia_id, concepto, centro_id) values
@@ -221,7 +228,51 @@ begin
       raise exception 'FALLA: factura de A apuntando a movimiento de B';
     exception when foreign_key_violation then null;
     end;
-    ok := array_append(ok, 'A: FK compuestas impiden apuntar a centro/categoría/subcategoría/movimiento de B');
+    begin
+      insert into public.vencimientos_recurrentes (concepto, dia, desde, categoria_id) values ('X', 1, hace2, cat_b);
+      raise exception 'FALLA: recurrente de A apuntando a categoría de B';
+    exception when foreign_key_violation then null;
+    end;
+    begin
+      insert into public.vencimientos (concepto, fecha, recurrente_id, periodo) values ('X', current_date, rec_b, hace2);
+      raise exception 'FALLA: vencimiento de A apuntando a recurrente de B';
+    exception when foreign_key_violation then null;
+    end;
+    ok := array_append(ok, 'A: FK compuestas impiden apuntar a centro/categoría/subcategoría/movimiento/recurrente de B');
+
+    -- Vencimientos recurrentes (V1): generar_vencimientos_recurrentes() crea los meses que faltan, solo de A.
+    -- Uno con "hasta" = "desde" genera un solo mes.
+    insert into public.vencimientos_recurrentes (concepto, dia, desde, hasta) values ('Rec A corto', 5, hace2, hace2);
+    n := public.generar_vencimientos_recurrentes();
+    if n <> 4 then raise exception 'FALLA: generar_vencimientos_recurrentes() creó % vencimientos (deberían ser 3 + 1)', n; end if;
+    select count(*) into n from public.vencimientos
+      where recurrente_id = rec_a and familia_id = fa and estado = 'pendiente' and categoria_id = cat_a and centro_id = cen_a
+        and fecha = (periodo + interval '1 month - 1 day')::date;
+    if n <> 3 then raise exception 'FALLA: los vencimientos del recurrente de A no quedaron bien (% de 3)', n; end if;
+    if (select generado_hasta from public.vencimientos_recurrentes where id = rec_a) <> date_trunc('month', current_date)::date then
+      raise exception 'FALLA: generado_hasta no quedó en el mes actual';
+    end if;
+    if public.generar_vencimientos_recurrentes() <> 0 then raise exception 'FALLA: la segunda llamada volvió a generar'; end if;
+    delete from public.vencimientos where recurrente_id = rec_a and periodo = hace2;
+    if public.generar_vencimientos_recurrentes() <> 0 then raise exception 'FALLA: un vencimiento generado y borrado volvió'; end if;
+    begin
+      insert into public.vencimientos (concepto, fecha, recurrente_id, periodo)
+        values ('Doble', current_date, rec_a, date_trunc('month', current_date)::date);
+      raise exception 'FALLA: un recurrente tiene dos vencimientos en el mismo mes';
+    exception when unique_violation then null;
+    end;
+    begin
+      update public.vencimientos set estado = 'otro' where recurrente_id = rec_a;
+      raise exception 'FALLA: se guardó un estado de vencimiento inválido';
+    exception when check_violation then null;
+    end;
+    ok := array_append(ok, 'A: genera sus vencimientos recurrentes una sola vez por mes (último día si el mes es corto; respeta "hasta")');
+
+    -- Con p_hoy en el mes siguiente genera uno más (el corto ya terminó).
+    if public.generar_vencimientos_recurrentes((current_date + interval '1 month')::date) <> 1 then
+      raise exception 'FALLA: al pasar al mes siguiente no generó el vencimiento nuevo';
+    end if;
+    ok := array_append(ok, 'A: al cambiar de mes se genera el del mes nuevo');
 
     -- familia_config: la familia la lee pero no la escribe
     begin
@@ -359,7 +410,12 @@ begin
     if public.config_valor('__test_numero') is distinct from '7' then
       raise exception 'FALLA: config_valor() no devuelve el valor propio de B';
     end if;
-    ok := array_append(ok, 'B: no ve nada de A');
+    -- Lo que generó A no tocó a B: B genera los suyos recién ahora.
+    if exists (select 1 from public.vencimientos where recurrente_id = rec_b) then
+      raise exception 'FALLA: la generación de A creó vencimientos de B';
+    end if;
+    if public.generar_vencimientos_recurrentes() <> 3 then raise exception 'FALLA: B no generó sus 3 vencimientos'; end if;
+    ok := array_append(ok, 'B: no ve nada de A y genera solo sus recurrentes');
 
     reset role;
 
@@ -406,7 +462,10 @@ begin
       get diagnostics n = row_count;
       if n <> 0 then raise exception 'FALLA: el superadmin borró % filas en %', n, t; end if;
     end loop;
-    ok := array_append(ok, 'superadmin: no inserta, edita ni borra datos de las familias');
+    if public.generar_vencimientos_recurrentes((current_date + interval '6 months')::date) <> 0 then
+      raise exception 'FALLA: el superadmin generó vencimientos recurrentes';
+    end if;
+    ok := array_append(ok, 'superadmin: no inserta, edita ni borra datos de las familias (ni genera recurrentes)');
 
     insert into public.familia_config (familia_id, clave, valor) values (fa, 'arca_razon_social', 'Razón A');
     update public.familia_config set valor = '20000000009' where familia_id = fb and clave = 'arca_cuit';

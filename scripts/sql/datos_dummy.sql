@@ -119,6 +119,19 @@ join (values
 join centros cen on cen.familia_id = f.id and cen.codigo = v.centro
 where f.nombre = 'Familia Demo';
 
+-- Vencimientos recurrentes: los de cada mes los crea la app al abrirse (generar_vencimientos_recurrentes).
+insert into vencimientos_recurrentes (familia_id, concepto, dia, monto, centro_id, categoria_id, desde)
+select f.id, r.concepto, r.dia, r.monto, cen.id, cat.id,
+       (date_trunc('month', current_date) - make_interval(months => r.meses_atras))::date
+from familias f
+join (values
+  ('Patín',     10, 25000, 'MPD', null::text,  1),  -- sin categoría, desde el mes pasado
+  ('Expensas',   8, 95000, 'BSD', 'Casa',      0)
+) as r(concepto, dia, monto, centro, categoria, meses_atras) on true
+join centros cen on cen.familia_id = f.id and cen.codigo = r.centro
+left join categorias cat on cat.familia_id = f.id and cat.nombre = r.categoria
+where f.nombre = 'Familia Demo';
+
 insert into reglas_categorizacion (familia_id, proveedor, categoria, subcategoria)
 select f.id, r.proveedor, r.categoria, r.subcategoria
 from familias f, (values

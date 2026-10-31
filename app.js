@@ -3,12 +3,12 @@ var SUPABASE_URL = 'https://ssfbamnomyjkuixqzxok.supabase.co';
 var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNzZmJhbW5vbXlqa3VpeHF6eG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTU5MzEsImV4cCI6MjEwODk3MTkzMX0.6RX4y2yPr4JJT5V9iWf9231ajal6BD5oefTmJgQOhMA';
 var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
+var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], vencRecurrentes: [], vencDraft: null, usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
   importEntidad:'mp', importBanco:'nacion', importVencimiento:'', importTarjetaMarca:'', importRaw:'', importPreview:null, importPreviewExcel:null, importMsg:null,
   bulkColorCatMsg:null, bulkColorCatAbierto:false, confirmState:null, subDeleteState:null, vencPagarState:null, movFormMsg:null, movFieldErrors:null,
   filtros:{centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false},
   resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
-  vencFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
+  vencFormMsg:null, vrecFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
   usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
   usdtVentaMovId:null, usdtVentaMovMsg:null, usdtVentaMovCantidad:'',
   reglas: [], reglaFormMsg:null, reglasPaginaActual:1, reglasPorPagina:leerTamPagina('controlReglasPorPagina', [15,30,50,100], 15), movPorPagina:leerTamPagina('controlMovPorPagina', [25,50,100,200], 50),
@@ -299,11 +299,31 @@ function toDbMovimiento(m){
   return r;
 }
 function fromDbMovimiento(r){ return {id:r.id, fecha:r.fecha, centroId:r.centro_id||'', categoriaId:r.categoria_id||'', subcategoriaId:r.subcategoria_id||'', proveedor:r.proveedor||'', detalle:r.detalle||'', ingreso:Number(r.ingreso)||0, egreso:Number(r.egreso)||0, tarjeta:!!r.tarjeta, fechaConsumo:r.fecha_consumo||'', tarjetaMarca:r.tarjeta_marca||'', cuotas:r.cuotas||'', moneda:r.moneda==='USD'?'USD':'ARS', cambioId:r.cambio_id||''}; }
-function toDbVencimiento(v){ return {id:v.id, concepto:v.concepto, fecha:v.fecha, monto:Number(v.monto)||0, centro_id:v.centroId||null, estado:v.estado||'pendiente'}; }
-function fromDbVencimiento(r){ return {id:r.id, concepto:r.concepto, fecha:r.fecha, monto:Number(r.monto)||0, centroId:r.centro_id||'', estado:r.estado||'pendiente'}; }
+function toDbVencimiento(v){
+  return {id:v.id, concepto:v.concepto, fecha:v.fecha, monto:Number(v.monto)||0, centro_id:v.centroId||null,
+    categoria_id:v.categoriaId||null, subcategoria_id:v.subcategoriaId||null, estado:v.estado||'pendiente',
+    recurrente_id:v.recurrenteId||null, periodo:v.periodo||null};
+}
+function fromDbVencimiento(r){
+  return {id:r.id, concepto:r.concepto, fecha:r.fecha, monto:Number(r.monto)||0, centroId:r.centro_id||'',
+    categoriaId:r.categoria_id||'', subcategoriaId:r.subcategoria_id||'', estado:r.estado||'pendiente',
+    recurrenteId:r.recurrente_id||'', periodo:r.periodo||''};
+}
+// Plantilla de vencimiento recurrente (V1). desde/hasta: mes 'aaaa-mm' en la app, día 1 en la base.
+// generado_hasta lo maneja solo la base (generar_vencimientos_recurrentes), por eso no se manda.
+function toDbVencRecurrente(r){
+  return {id:r.id, concepto:r.concepto, monto:Number(r.monto)||0, dia:Number(r.dia)||1, centro_id:r.centroId||null,
+    categoria_id:r.categoriaId||null, subcategoria_id:r.subcategoriaId||null,
+    desde:r.desde ? r.desde+'-01' : null, hasta:r.hasta ? r.hasta+'-01' : null};
+}
+function fromDbVencRecurrente(r){
+  return {id:r.id, concepto:r.concepto, monto:Number(r.monto)||0, dia:Number(r.dia)||1, centroId:r.centro_id||'',
+    categoriaId:r.categoria_id||'', subcategoriaId:r.subcategoria_id||'',
+    desde:(r.desde||'').slice(0,7), hasta:(r.hasta||'').slice(0,7)};
+}
 async function crearMovimientoDesdeVencimiento(v){
   var nuevoMov = {
-    id: uid(), fecha: v.fecha, centroId: v.centroId||'', categoriaId:'', subcategoriaId:'',
+    id: uid(), fecha: v.fecha, centroId: v.centroId||'', categoriaId: v.categoriaId||'', subcategoriaId: v.subcategoriaId||'',
     proveedor: v.concepto, detalle:'', ingreso:0, egreso: Number(v.monto)||0
   };
   await dbInsert('movimientos', toDbMovimiento(nuevoMov));
@@ -351,7 +371,7 @@ function fromDbConfigCatalogo(r){
 // Tablas con datos de cada familia. Un miembro no necesita filtrar (RLS ya le devuelve solo lo de su
 // familia, y familia_id lo completa la base al insertar); el superadmin ve todas, así que acá se
 // filtra por la familia elegida en el selector.
-var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
+var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos_recurrentes', 'vencimientos', 'deudas',
   'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
 
 // opciones.todasLasFamilias: sin filtrar por la familia elegida (backup global del superadmin).
@@ -449,6 +469,21 @@ async function restaurarFamilia(datos, familiaId){
   return res.data;
 }
 
+// Vencimientos recurrentes (V1): la base crea los de cada mes que falte (generar_vencimientos_recurrentes
+// en schema.sql), con la fecha local de hoy. El superadmin solo mira, así que no genera. Si falla, la app
+// carga igual (los vencimientos ya generados se ven) y se reintenta en la próxima carga.
+async function generarVencimientosRecurrentes(){
+  if(STATE.soloLectura) return 0;
+  try{
+    var res = await sb.rpc('generar_vencimientos_recurrentes', { p_hoy: fechaHoyISO() });
+    if(res.error) throw res.error;
+    return Number(res.data)||0;
+  }catch(e){
+    if(window.console) console.warn('No se pudieron generar los vencimientos recurrentes: '+(e.message||e));
+    return 0;
+  }
+}
+
 async function cargarTodo(){
   // Configuración (D3) primero: el catálogo (global, con los defaults) + lo que la familia tiene distinto
   // (configuracionValor() combina las dos). Define qué funciones opcionales están prendidas.
@@ -464,8 +499,10 @@ async function cargarTodo(){
   }).sort(function(a, b){ return (a.orden - b.orden) || a.codigo.localeCompare(b.codigo); });
   STATE.importadoresOcultos = (await dbFetchAll('familia_importadores_ocultos')).map(function(r){ return r.importador_codigo; });
 
-  var [centros, categorias, subcategorias, movimientos, vencimientos] = await Promise.all([
-    dbFetchAll('centros'), dbFetchAll('categorias'), dbFetchAll('subcategorias'), dbFetchAll('movimientos', 'created_at'), dbFetchAll('vencimientos')
+  await generarVencimientosRecurrentes();
+  var [centros, categorias, subcategorias, movimientos, vencimientos, vencRecurrentes] = await Promise.all([
+    dbFetchAll('centros'), dbFetchAll('categorias'), dbFetchAll('subcategorias'), dbFetchAll('movimientos', 'created_at'), dbFetchAll('vencimientos'),
+    dbFetchAll('vencimientos_recurrentes')
   ]);
   STATE.centros = centros.map(fromDbCentro);
   STATE.miembrosFamilia = (await dbFetchAll('miembros')).map(fromDbMiembro)
@@ -480,6 +517,7 @@ async function cargarTodo(){
   // Con Dólares apagada, los movimientos en USD no se muestran en ningún lado.
   STATE.movimientosUsd = funcionActiva('dolares') ? todosLosMovs.filter(function(m){ return m.moneda==='USD'; }) : [];
   STATE.vencimientos = vencimientos.map(fromDbVencimiento);
+  STATE.vencRecurrentes = vencRecurrentes.map(fromDbVencRecurrente);
   STATE.usdtMovimientos = []; STATE.deudas = []; STATE.facturas = [];
   if(funcionActiva('usdt')) try{
     // Try/catch aparte: si todavía no corriste migracion_usdt.sql, arranca vacío en vez de romper la carga.
@@ -1748,8 +1786,11 @@ function renderInterno(){
   if(STATE.vencPagarState){
     var vps = STATE.vencimientos.find(function(x){return x.id===STATE.vencPagarState.id;});
     if(vps){
+      var yaCargadosPagar = movimientosDelVencimiento(vps);
       MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="pagar-venc"><div class="modal-card">'+
         '<div style="margin-bottom:16px">¿Marcar "'+esc(vps.concepto)+'" como pagado?</div>'+
+        (yaCargadosPagar.length ? '<div class="info-box warning" style="margin-bottom:12px"><i class="bi bi-info-circle"></i> '+
+          esc(textoMovimientoYaCargado(yaCargadosPagar))+' Si lo cargás como movimiento, va a quedar dos veces.</div>' : '')+
         '<div class="fields-row" style="flex-direction:column;align-items:stretch;gap:8px">'+
           '<button data-action="pagar-venc-con-mov" data-id="'+vps.id+'">Sí, y cargarlo como movimiento</button>'+
           '<button class="secondary" data-action="pagar-venc-sin-mov" data-id="'+vps.id+'">Sí, sólo marcar pagado</button>'+
@@ -2457,7 +2498,7 @@ function alertaVencimientosProximosHtml(){
   });
 
   var vencimientosProximos = STATE.vencimientos.filter(function(v){
-    if(v.estado==='pagado') return false;
+    if(v.estado!=='pendiente') return false;
     var dias = diasHasta(v.fecha);
     return dias===0 || dias===1;
   }).map(function(v){
@@ -2977,32 +3018,135 @@ function diasHasta(iso){
   return Math.round((f-hoy)/86400000);
 }
 
-function campoVenc(e, mostrarEstado){
+// Campos compartidos por el formulario de vencimiento (prefijo 'venc') y el de recurrente ('vrec').
+// Al cambiar la Categoría se re-renderiza con lo tipeado en STATE.vencDraft (ver el listener en render).
+function camposCentroCategoriaVenc(prefijo, e, idEnEdicion){
+  var subOpciones = subcategoriasOrdenadas(STATE.subcategorias.filter(function(s){ return s.categoriaId === e.categoriaId; }))
+    .map(function(s){ return '<option value="'+s.id+'" '+(e.subcategoriaId===s.id?'selected':'')+'>'+esc(s.nombre)+'</option>'; }).join('');
+  return '<div class="field"><label>Centro de Costo</label><select id="f-'+prefijo+'-centro"><option value="">(sin asignar)</option>'+
+      centrosOrdenados().map(function(c){ return '<option value="'+c.id+'" '+(e.centroId===c.id?'selected':'')+'>'+esc(c.codigo)+' · '+esc(c.nombre)+'</option>'; }).join('') +
+    '</select></div>'+
+    '<div class="field"><label>Categoría</label><select id="f-'+prefijo+'-categoria" data-venc-form="'+prefijo+'" data-id="'+esc(idEnEdicion||'')+'"><option value="">Sin categoría</option>'+
+      categoriasOrdenadas().map(function(c){ return '<option value="'+c.id+'" '+(e.categoriaId===c.id?'selected':'')+'>'+esc(c.nombre)+'</option>'; }).join('')+
+    '</select></div>'+
+    '<div class="field"><label>Subcategoría</label><select id="f-'+prefijo+'-subcategoria"><option value="">—</option>'+subOpciones+'</select></div>';
+}
+// Lee del DOM los campos del formulario con ese prefijo; solo los que están en pantalla.
+function leerFormVenc(prefijo){
+  var valores = {};
+  ['concepto', 'fecha', 'monto', 'dia', 'desde', 'hasta', 'estado'].forEach(function(campo){
+    var el = document.getElementById('f-'+prefijo+'-'+campo);
+    if(el) valores[campo] = el.value;
+  });
+  [['centro', 'centroId'], ['categoria', 'categoriaId'], ['subcategoria', 'subcategoriaId']].forEach(function(par){
+    var el = document.getElementById('f-'+prefijo+'-'+par[0]);
+    if(el) valores[par[1]] = el.value;
+  });
+  return valores;
+}
+// Lo tipeado en el formulario (si el draft es de ese formulario y de esa fila) sobre los datos guardados.
+function conDraftVenc(prefijo, idEnEdicion, base){
+  var d = STATE.vencDraft;
+  return (d && d.form===prefijo && d.id===(idEnEdicion||'')) ? Object.assign({}, base, d.valores) : base;
+}
+function mesAaaaMmAMmAaaa(mes){
+  var m = (mes||'').match(/^(\d{4})-(\d{2})$/);
+  return m ? m[2]+'/'+m[1] : '';
+}
+var ESTADOS_VENC = [['pendiente', 'Pendiente'], ['pagado', 'Pagado'], ['salteado', 'Salteado (no se paga)']];
+
+// V6: egresos ya cargados en el mes del vencimiento con su misma categoría (y subcategoría, si tiene), para
+// avisar "ya tenés este movimiento" antes de pagarlo y cargarlo de nuevo. Solo un aviso: no los vincula.
+function movimientosDelVencimiento(v){
+  if(!v.categoriaId || !v.fecha) return [];
+  var mes = v.fecha.slice(0,7);
+  return STATE.movimientos.filter(function(m){
+    return (m.fecha||'').slice(0,7)===mes && m.categoriaId===v.categoriaId &&
+      (!v.subcategoriaId || m.subcategoriaId===v.subcategoriaId) && (Number(m.egreso)||0) > 0;
+  }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+}
+function textoMovimientoYaCargado(movs){
+  var m = movs[0];
+  return 'Ya tenés un movimiento de esta categoría el '+fechaISOaDDMMAAAA(m.fecha)+' por $'+fmtMonto(m.egreso)+
+    (m.proveedor ? ' ('+m.proveedor+')' : '')+(movs.length>1 ? ' y '+(movs.length-1)+' más' : '')+'.';
+}
+
+function campoVenc(e, mostrarEstado, idEnEdicion){
   var html = '<div class="field"><label>Concepto</label><input type="text" id="f-venc-concepto" value="'+esc(e.concepto)+'" style="width:220px" placeholder="Ej: Tarjeta Visa Santander"></div>'+
     '<div class="field"><label>Fecha de vencimiento</label><input type="date" id="f-venc-fecha" value="'+esc(e.fecha)+'"></div>'+
     '<div class="field"><label>Monto</label><input type="number" step="0.01" id="f-venc-monto" value="'+esc(e.monto)+'" style="width:130px"></div>'+
-    '<div class="field"><label>Centro de Costo</label><select id="f-venc-centro"><option value="">(sin asignar)</option>'+
-      centrosOrdenados().map(function(c){ return '<option value="'+c.id+'" '+(e.centroId===c.id?'selected':'')+'>'+esc(c.codigo)+' · '+esc(c.nombre)+'</option>'; }).join('') +
-    '</select></div>';
+    camposCentroCategoriaVenc('venc', e, idEnEdicion);
   if(mostrarEstado){
     html += '<div class="field"><label>Estado</label><select id="f-venc-estado">'+
-        '<option value="pendiente"'+(e.estado!=='pagado'?' selected':'')+'>Pendiente</option>'+
-        '<option value="pagado"'+(e.estado==='pagado'?' selected':'')+'>Pagado</option>'+
+        ESTADOS_VENC.map(function(par){ return '<option value="'+par[0]+'"'+((e.estado||'pendiente')===par[0]?' selected':'')+'>'+par[1]+'</option>'; }).join('')+
       '</select></div>'+
       '<div class="field" style="align-self:flex-end;margin-bottom:8px"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="f-venc-crear-mov" style="width:auto"> Cargar también como movimiento</label></div>';
   }
   return html;
 }
+function campoVencRecurrente(e, idEnEdicion){
+  return '<div class="field"><label>Concepto</label><input type="text" id="f-vrec-concepto" value="'+esc(e.concepto)+'" style="width:220px" placeholder="Ej: Patín"></div>'+
+    '<div class="field"><label>Día del mes</label><input type="number" min="1" max="31" step="1" id="f-vrec-dia" value="'+esc(e.dia)+'" style="width:80px"></div>'+
+    '<div class="field"><label>Monto</label><input type="number" step="0.01" id="f-vrec-monto" value="'+esc(e.monto)+'" style="width:130px"></div>'+
+    camposCentroCategoriaVenc('vrec', e, idEnEdicion)+
+    '<div class="field"><label>Desde (mes)</label><input type="month" id="f-vrec-desde" value="'+esc(e.desde)+'"></div>'+
+    '<div class="field"><label>Hasta (mes, opcional)</label><input type="month" id="f-vrec-hasta" value="'+esc(e.hasta)+'"></div>';
+}
+// Plantillas de vencimientos recurrentes (V1): se ven siempre en la pestaña; el alta y la edición van en un modal.
+function renderVencRecurrentes(){
+  var mesActual = fechaHoyISO().slice(0,7);
+  var lista = STATE.vencRecurrentes.slice().sort(function(a,b){
+    return (a.dia-b.dia) || (a.concepto||'').localeCompare(b.concepto||'', 'es', {sensitivity:'base'});
+  });
+  var rows = lista.map(function(r){
+    var terminado = r.hasta && r.hasta < mesActual;
+    var vigencia = 'desde '+mesAaaaMmAMmAaaa(r.desde)+(r.hasta ? ' hasta '+mesAaaaMmAMmAaaa(r.hasta) : '');
+    return '<tr'+(terminado?' style="opacity:.55"':'')+'>'+
+      '<td data-label="Concepto">'+esc(r.concepto)+'</td>'+
+      '<td class="mono" data-label="Día">'+r.dia+'</td>'+
+      '<td class="mono" data-label="Centro">'+esc(r.centroId?nombreCentro(r.centroId).split(' · ')[0]:'—')+'</td>'+
+      '<td data-label="Categoría">'+(r.categoriaId ? esc(nombreCategoria(r.categoriaId))+(r.subcategoriaId?' › '+esc(nombreSubcategoria(r.subcategoriaId)):'') : '—')+'</td>'+
+      '<td class="mono" data-label="Vigencia">'+esc(vigencia)+(terminado?' (terminado)':'')+'</td>'+
+      '<td class="num mono" data-label="Monto">'+fmtMonto(r.monto)+'</td>'+
+      '<td class="actions-cell">'+
+        '<button class="link" data-action="edit-vrec" data-id="'+r.id+'">editar</button>'+
+        '<button class="link" data-action="del-vrec" data-id="'+r.id+'">borrar</button>'+
+      '</td>'+
+    '</tr>';
+  }).join('');
+  return '<div class="card"><h3><i class="bi bi-arrow-repeat"></i> Vencimientos recurrentes ('+lista.length+')</h3>'+
+    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">Algo que se paga todos los meses. Al abrir la app se crea solo el vencimiento de cada mes (también los que hayan quedado atrás desde el mes "Desde"), que después marcás pagado o salteado. Los cambios valen para los meses que todavía no se crearon.</div>'+
+    (lista.length ? '<table class="table tabla-movil"><thead><tr><th>Concepto</th><th>Día</th><th>Centro</th><th>Categoría</th><th>Vigencia</th><th class="num">Monto</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún vencimiento recurrente.</div>')+
+    '<div class="fields-row" style="margin-top:10px"><button class="secondary" data-action="nuevo-vrec">Nuevo recurrente</button></div>'+
+  '</div>';
+}
 function renderVencimientos(){
   var editing = STATE.editing && STATE.editing.type==='venc' ? STATE.vencimientos.find(function(x){return x.id===STATE.editing.id;}) : null;
+  var editingRec = STATE.editing && STATE.editing.type==='vrec' ? STATE.editing : null;
 
   if(editing){
     MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card">'+
       '<h2>Editar vencimiento</h2>'+
       (STATE.vencFormMsg ? '<div class="msg err">'+esc(STATE.vencFormMsg)+'</div>' : '')+
-      '<div class="fields-row">'+ campoVenc(editing, true) +'</div>'+
+      '<div class="fields-row">'+ campoVenc(conDraftVenc('venc', editing.id, editing), true, editing.id) +'</div>'+
       '<div class="fields-row" style="margin-top:14px">'+
         '<button data-action="save-venc" data-id="'+editing.id+'">Guardar cambios</button>'+
+        '<button class="secondary" data-action="cancel-edit">Cancelar</button>'+
+      '</div>'+
+    '</div></div>';
+  }
+
+  if(editingRec){
+    var plantilla = editingRec.id ? STATE.vencRecurrentes.find(function(x){ return x.id===editingRec.id; }) : null;
+    var baseRec = plantilla || {concepto:'', dia:'', monto:'', centroId:'', categoriaId:'', subcategoriaId:'', desde:fechaHoyISO().slice(0,7), hasta:''};
+    MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card">'+
+      '<h2>'+(plantilla ? 'Editar vencimiento recurrente' : 'Nuevo vencimiento recurrente')+'</h2>'+
+      (STATE.vrecFormMsg ? '<div class="msg err">'+esc(STATE.vrecFormMsg)+'</div>' : '')+
+      '<div class="fields-row">'+ campoVencRecurrente(conDraftVenc('vrec', editingRec.id, baseRec), editingRec.id) +'</div>'+
+      '<div style="font-size:11px;color:var(--ink-soft);margin-top:8px">Se crea un vencimiento por mes desde el mes "Desde": si es un mes pasado, también se crean los de esos meses. Si el mes no tiene ese día (por ejemplo el 31), vence el último día del mes.'+
+        (plantilla ? ' Los cambios valen para los meses que todavía no se crearon; los ya creados se editan en la lista de vencimientos.' : '')+'</div>'+
+      '<div class="fields-row" style="margin-top:14px">'+
+        '<button data-action="save-vrec" data-id="'+esc(editingRec.id||'')+'">'+(plantilla ? 'Guardar cambios' : 'Agregar')+'</button>'+
         '<button class="secondary" data-action="cancel-edit">Cancelar</button>'+
       '</div>'+
     '</div></div>';
@@ -3012,26 +3156,31 @@ function renderVencimientos(){
   '<div class="card">'+
     '<h2>Nuevo vencimiento</h2>'+
     (STATE.vencFormMsg ? '<div class="msg err">'+esc(STATE.vencFormMsg)+'</div>' : '')+
-    '<div class="fields-row">'+ campoVenc({concepto:'', fecha:'', monto:'', centroId:''}) +
+    '<div class="fields-row">'+ campoVenc(conDraftVenc('venc', '', {concepto:'', fecha:'', monto:'', centroId:'', categoriaId:'', subcategoriaId:''})) +
       '<button data-action="save-venc" data-id="">Agregar</button>'+
     '</div>'+
   '</div>';
 
   var formHtml = formNuevoVenc;
 
-  var lista = STATE.vencimientos.filter(function(v){ return v.estado!=='pagado'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+  var lista = STATE.vencimientos.filter(function(v){ return v.estado==='pendiente'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
   var rows = lista.map(function(v){
     var dias = diasHasta(v.fecha);
     var diasTxt = dias===null ? '' : (dias<0 ? Math.abs(dias)+' día(s) vencido' : (dias===0 ? 'Vence hoy' : 'en '+dias+' día(s)'));
     var colorDias = dias!==null && dias<=3 ? 'egreso' : (dias!==null && dias<=7 ? '' : 'ingreso');
+    var yaCargados = movimientosDelVencimiento(v);
+    var avisoYaCargado = yaCargados.length ? '<div class="venc-ya-cargado" style="font-size:11px;color:var(--ink-soft);margin-top:4px">'+
+        '<i class="bi bi-info-circle"></i> '+esc(textoMovimientoYaCargado(yaCargados))+' '+
+        '<button class="link" data-action="pagar-venc-sin-mov" data-id="'+v.id+'">¿Marcar pagado?</button></div>' : '';
     return '<tr>'+
-      '<td data-label="Concepto">'+esc(v.concepto)+'</td>'+
+      '<td data-label="Concepto">'+(v.recurrenteId?'<i class="bi bi-arrow-repeat" title="Vencimiento recurrente"></i> ':'')+esc(v.concepto)+avisoYaCargado+'</td>'+
       '<td class="mono" data-label="Fecha">'+esc(fechaISOaDDMMAAAA(v.fecha))+'</td>'+
       '<td class="mono '+colorDias+'" data-label="Estado">'+diasTxt+'</td>'+
       '<td class="mono" data-label="Centro">'+esc(v.centroId?nombreCentro(v.centroId).split(' · ')[0]:'—')+'</td>'+
       '<td class="num mono" data-label="Monto">'+fmtMonto(v.monto)+'</td>'+
       '<td class="actions-cell">'+
         '<button class="link" data-action="pagar-venc" data-id="'+v.id+'">marcar pagado</button>'+
+        '<button class="link" data-action="saltear-venc" data-id="'+v.id+'" title="Este mes no se paga">saltear</button>'+
         '<button class="link" data-action="edit-venc" data-id="'+v.id+'">editar</button>'+
         '<button class="link" data-action="del-venc" data-id="'+v.id+'">borrar</button>'+
       '</td>'+
@@ -3042,11 +3191,12 @@ function renderVencimientos(){
     (lista.length ? '<table class="table tabla-movil"><thead><tr><th>Concepto</th><th>Fecha</th><th>Estado</th><th>Centro</th><th class="num">Monto</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún vencimiento.</div>')+
   '</div>';
 
-  var pagados = STATE.vencimientos.filter(function(v){ return v.estado==='pagado'; }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+  var pagados = STATE.vencimientos.filter(function(v){ return v.estado!=='pendiente'; }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
   var rowsPagados = pagados.map(function(v){
     return '<tr>'+
-      '<td data-label="Concepto">'+esc(v.concepto)+'</td>'+
+      '<td data-label="Concepto">'+(v.recurrenteId?'<i class="bi bi-arrow-repeat" title="Vencimiento recurrente"></i> ':'')+esc(v.concepto)+'</td>'+
       '<td class="mono" data-label="Fecha">'+esc(fechaISOaDDMMAAAA(v.fecha))+'</td>'+
+      '<td data-label="Estado">'+(v.estado==='salteado' ? 'Salteado' : 'Pagado')+'</td>'+
       '<td class="mono" data-label="Centro">'+esc(v.centroId?nombreCentro(v.centroId).split(' · ')[0]:'—')+'</td>'+
       '<td class="num mono" data-label="Monto">'+fmtMonto(v.monto)+'</td>'+
       '<td class="actions-cell">'+
@@ -3057,8 +3207,8 @@ function renderVencimientos(){
   }).join('');
   var tablePagadosHtml = pagados.length ? '<div class="card">'+
     '<details class="resumen-tarjeta" data-grupo-key="venc-pagados"'+(STATE.gruposAbiertos['venc-pagados']?' open':'')+'>'+
-      '<summary><span>Vencimientos pagados ('+pagados.length+')</span></summary>'+
-      '<div style="overflow-x:auto;margin-top:10px"><table class="table tabla-movil"><thead><tr><th>Concepto</th><th>Fecha</th><th>Centro</th><th class="num">Monto</th><th></th></tr></thead><tbody>'+rowsPagados+'</tbody></table></div>'+
+      '<summary><span>Vencimientos pagados y salteados ('+pagados.length+')</span></summary>'+
+      '<div style="overflow-x:auto;margin-top:10px"><table class="table tabla-movil"><thead><tr><th>Concepto</th><th>Fecha</th><th>Estado</th><th>Centro</th><th class="num">Monto</th><th></th></tr></thead><tbody>'+rowsPagados+'</tbody></table></div>'+
     '</details>'+
   '</div>' : '';
 
@@ -3126,7 +3276,7 @@ function renderVencimientos(){
     (!pendientesMov.length ? '<div class="empty">No hay movimientos con fecha futura.</div>' : '')+
   '</div>';
 
-  return formHtml + tableHtml + tablePendientesMovHtml + tablePagadosHtml;
+  return formHtml + tableHtml + renderVencRecurrentes() + tablePendientesMovHtml + tablePagadosHtml;
 }
 
 // ===================== SALDOS =====================
@@ -3544,28 +3694,48 @@ function renderGrillaMensual(movs, rango){
 // Calcula los 4 totales de Resumen (ingresos/egresos/inversión/saldo) para una combinación de filtros
 // de Centro/Categoría/Mes. Extraído de renderResumen() para poder llamarlo dos veces: una con los
 // filtros vigentes y otra con el mes anterior, y así mostrar la comparación en las KPI cards.
+// Indicadores del Resumen para un recorte de Centro/Categoría/Mes (también los usa la Tendencia mensual,
+// mes por mes, así el gráfico cuenta lo mismo que las tarjetas).
+// - "Total ingresos" = solo lo categorizado como Sueldo. "Total egresos" = neto (egreso-ingreso) del resto
+//   de las categorías (todo menos TEC/Solo control/Sueldo/Inversión). Inversión va aparte.
+// - Los movimientos con fecha futura (pendientes) no cuentan, igual que en Saldos: el Resumen muestra lo
+//   que ya pasó. Lo pendiente del período se devuelve aparte (pendientes: neto de lo que iría a egresos o
+//   Inversión) para avisarlo debajo de "Total egresos".
+// - El Sueldo (en pesos o en USDT) se filtra por mes aparte: usa mesEfectivoSueldo en vez del mes calendario
+//   (ver la configuración sueldo_dias_mes_siguiente). De USDT cuentan los ingresos con categoría de tipo
+//   Sueldo (ver valoresArsIngresosUsdt); los pesos de vender USDT quedan afuera (esa plata ya entró como
+//   USDT, sumarla de nuevo la duplicaría).
+// - Los gastos en dólares (no las compras/ventas, que ya cuentan por su parte en pesos) suman a egresos o a
+//   Inversión pasados a pesos con cotizacionUsdReferencia(), igual que en Flujo de Caja.
 function calcularTotalesResumenKpis(centroArr, categoriaArr, mesArr){
+  var hoy = fechaHoyISO();
   var filtrados = STATE.movimientos.filter(function(m){
     if(centroArr.length && centroArr.indexOf(m.centroId)===-1) return false;
     if(categoriaArr.length && categoriaArr.indexOf(m.categoriaId)===-1) return false;
     if(mesArr.length && mesArr.indexOf((m.fecha||'').slice(0,7))===-1) return false;
     return true;
   });
+  // Gastos en dólares del recorte, como movimientos en pesos (para sumarlos y desglosarlos con el resto).
+  var cotizUsd = cotizacionUsdReferencia();
+  STATE.movimientosUsd.forEach(function(m){
+    if(m.cambioId || !(Number(m.egreso)>0)) return;
+    if(centroArr.length && centroArr.indexOf(m.centroId)===-1) return;
+    if(categoriaArr.length && categoriaArr.indexOf(m.categoriaId)===-1) return;
+    if(mesArr.length && mesArr.indexOf((m.fecha||'').slice(0,7))===-1) return;
+    filtrados.push(Object.assign({}, m, { ingreso:0, egreso:(Number(m.egreso)||0)*cotizUsd, moneda:'ARS', origenUsd:true }));
+  });
   var idsVentaUsdt = idsMovimientosDeVentaUsdt();
-  var movsReales = filtrados.filter(function(m){ return !esCategoriaFueraDeReportes(m.categoriaId) && !esIngresoPorVentaUsdt(m, idsVentaUsdt); });
-  var movsInversion = movsReales.filter(function(m){ return esCategoriaInversion(m.categoriaId); });
-  var movsSinInversion = movsReales.filter(function(m){ return !esCategoriaInversion(m.categoriaId); });
-  var movsResto = movsSinInversion.filter(function(m){ return !esCategoriaSueldo(m.categoriaId); });
+  var movsReales = filtrados.filter(function(m){
+    return !esCategoriaFueraDeReportes(m.categoriaId) && !esIngresoPorVentaUsdt(m, idsVentaUsdt) && !esCategoriaSueldo(m.categoriaId);
+  });
+  var movsPendientes = movsReales.filter(function(m){ return (m.fecha||'') > hoy; });
+  var movsHastaHoy = movsReales.filter(function(m){ return (m.fecha||'') <= hoy; });
+  var movsInversion = movsHastaHoy.filter(function(m){ return esCategoriaInversion(m.categoriaId); });
+  var movsResto = movsHastaHoy.filter(function(m){ return !esCategoriaInversion(m.categoriaId); });
 
-  // "Total ingresos" = solo lo categorizado como Sueldo. "Total egresos" = neto (egreso-ingreso) del
-  // resto de las categorías (todo menos TEC/Sueldo/Inversión, que tienen su propio tratamiento). Inversión sigue aparte.
-  // El Sueldo (en pesos o en USDT) se filtra por mes aparte (no viene de "filtrados"): usa mesEfectivoSueldo
-  // en vez del mes calendario de la fecha, porque se acredita unos días antes de fin de mes y así ese pago
-  // ya cuenta para el mes al que corresponde, no para el mes en que se acreditó. Todo ingreso de USDT
-  // cuenta como Sueldo (ver valoresArsIngresosUsdt); los pesos de venderlo quedan afuera (ya se
-  // contaron al acreditarse el USDT, sumarlos de nuevo duplicaría el mismo ingreso).
   var movsSueldo = STATE.movimientos.filter(function(m){
     if(!esCategoriaSueldo(m.categoriaId) || esIngresoPorVentaUsdt(m, idsVentaUsdt)) return false;
+    if((m.fecha||'') > hoy) return false;
     if(centroArr.length && centroArr.indexOf(m.centroId)===-1) return false;
     if(categoriaArr.length && categoriaArr.indexOf(m.categoriaId)===-1) return false;
     if(mesArr.length && mesArr.indexOf(mesEfectivoSueldo(m.fecha))===-1) return false;
@@ -3574,17 +3744,20 @@ function calcularTotalesResumenKpis(centroArr, categoriaArr, mesArr){
   var valoresUsdt = valoresArsIngresosUsdt();
   var usdtSueldo = STATE.usdtMovimientos.filter(function(u){
     if(u.tipo!=='ingreso' || !esCategoriaSueldo(u.categoriaId)) return false;
+    if((u.fecha||'') > hoy) return false;
     if(centroArr.length && centroArr.indexOf(u.centroId||'')===-1) return false;
     if(categoriaArr.length && categoriaArr.indexOf(u.categoriaId)===-1) return false;
     if(mesArr.length && mesArr.indexOf(mesEfectivoSueldo(u.fecha))===-1) return false;
     return true;
   });
+  function neto(lista){ return lista.reduce(function(s,m){ return s + (Number(m.egreso)||0) - (Number(m.ingreso)||0); },0); }
   var totalIngreso = movsSueldo.reduce(function(s,m){ return s + (Number(m.ingreso)||0); },0)
     + usdtSueldo.reduce(function(s,u){ return s + (valoresUsdt[u.id]||0); },0);
-  var totalEgreso = movsResto.reduce(function(s,m){ return s + (Number(m.egreso)||0) - (Number(m.ingreso)||0); },0);
-  var totalInversion = movsInversion.reduce(function(s,m){ return s + (Number(m.egreso)||0) - (Number(m.ingreso)||0); },0);
+  var totalEgreso = neto(movsResto);
+  var totalInversion = neto(movsInversion);
   var saldo = totalIngreso - totalEgreso - totalInversion;
-  return { totalIngreso:totalIngreso, totalEgreso:totalEgreso, totalInversion:totalInversion, saldo:saldo, movsResto:movsResto };
+  return { totalIngreso:totalIngreso, totalEgreso:totalEgreso, totalInversion:totalInversion, saldo:saldo, movsResto:movsResto,
+    pendientes:neto(movsPendientes), cantPendientes:movsPendientes.length };
 }
 // "2026-05" -> "2026-04". Para calcular a qué mes comparar cuando el filtro de Mes de Resumen
 // tiene un único mes elegido.
@@ -4476,7 +4649,7 @@ function bindEvents(){
   document.querySelectorAll('.tab').forEach(function(t){
     t.addEventListener('click', function(){
       var tabId = t.getAttribute('data-tab');
-      STATE.activeTab = tabId; STATE.editing = null; STATE.movDraft = null; STATE.usdtDraft = null; STATE.usdtFormMsg = null; STATE.usdtIngresoOpcionalesAbierto = false; STATE.dolaresDraft = null; STATE.dolaresFormMsg = null; STATE.nuevoMovAbierto = false; STATE.menuMovilAbierto = false; STATE.multiSelectAbierto = null; STATE.bulkEditMovAbierto = false; STATE.movSeleccionados = [];
+      STATE.activeTab = tabId; STATE.editing = null; STATE.movDraft = null; STATE.vencDraft = null; STATE.usdtDraft = null; STATE.usdtFormMsg = null; STATE.usdtIngresoOpcionalesAbierto = false; STATE.dolaresDraft = null; STATE.dolaresFormMsg = null; STATE.nuevoMovAbierto = false; STATE.menuMovilAbierto = false; STATE.multiSelectAbierto = null; STATE.bulkEditMovAbierto = false; STATE.movSeleccionados = [];
       render();
       // Primera vez que se entra a USDT (o a Resumen/Saldos/Flujo, que valúan a la cotización de hoy el USDT de
       // sueldo todavía sin vender) en esta sesión: traer la cotización sola, sin que haya que tocar "Actualizar".
@@ -4686,6 +4859,18 @@ function bindEvents(){
       render();
     });
   }
+
+  // Formularios de vencimiento y de recurrente: refrescar las subcategorías al cambiar la Categoría,
+  // conservando lo tipeado.
+  document.querySelectorAll('select[data-venc-form]').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      var prefijo = sel.getAttribute('data-venc-form');
+      var valores = leerFormVenc(prefijo);
+      valores.subcategoriaId = '';
+      STATE.vencDraft = {form:prefijo, id:sel.getAttribute('data-id')||'', valores:valores};
+      render();
+    });
+  });
 
   // Mostrar/ocultar los campos de cuotas al tildar "Pagado con tarjeta de crédito",
   // y refrescar la ayuda ("se van a crear N movimientos...") al cambiar la cantidad de cuotas.
@@ -4923,6 +5108,7 @@ async function handleAction(action, id){
   if(!STATE.esSuperadmin && ACCIONES_SUPERADMIN.indexOf(action)!==-1) return;
   STATE.movDraft = null;
   STATE.usdtDraft = null;
+  STATE.vencDraft = null;
 
   if(action==='mov-pagina-anterior'){ STATE.movPaginaActual = Math.max(1, STATE.movPaginaActual-1); render(); return; }
   if(action==='mov-pagina-siguiente'){ STATE.movPaginaActual = STATE.movPaginaActual+1; render(); return; }
@@ -4948,6 +5134,7 @@ async function handleAction(action, id){
     STATE.bulkEditMovAbierto = false; STATE.bulkEditMovMsg = null;
     STATE.usdtFormMsg = null; STATE.movFieldErrors = null;
     STATE.dolaresDraft = null; STATE.dolaresFormMsg = null;
+    STATE.vencFormMsg = null; STATE.vrecFormMsg = null;
     STATE.bulkColorCatAbierto = false; STATE.bulkColorCatMsg = null;
     render(); return;
   }
@@ -5642,12 +5829,15 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='save-venc'){
-    var concepto = document.getElementById('f-venc-concepto').value.trim();
-    var fecha = document.getElementById('f-venc-fecha').value;
-    var monto = parseFloat(document.getElementById('f-venc-monto').value) || 0;
-    var centroId = document.getElementById('f-venc-centro').value;
+    var valoresVenc = leerFormVenc('venc');
+    var concepto = (valoresVenc.concepto||'').trim();
+    var fecha = valoresVenc.fecha||'';
+    var monto = parseFloat(valoresVenc.monto) || 0;
+    var centroId = valoresVenc.centroId||'';
+    var categoriaVencId = valoresVenc.categoriaId||'', subcategoriaVencId = valoresVenc.subcategoriaId||'';
     if(!concepto || !fecha){
       STATE.vencFormMsg = 'Completá al menos concepto y fecha de vencimiento.';
+      STATE.vencDraft = {form:'venc', id:id||'', valores:valoresVenc};
       render(); return;
     }
     var estadoSel = document.getElementById('f-venc-estado');
@@ -5658,13 +5848,15 @@ async function handleAction(action, id){
         var v = STATE.vencimientos.find(function(x){return x.id===id;});
         var estadoAnterior = v.estado;
         v.concepto = concepto; v.fecha = fecha; v.monto = monto; v.centroId = centroId;
+        v.categoriaId = categoriaVencId; v.subcategoriaId = subcategoriaVencId;
         if(estadoSel) v.estado = estadoSel.value;
         await dbUpdate('vencimientos', id, toDbVencimiento(v));
         if(estadoSel && estadoSel.value==='pagado' && estadoAnterior!=='pagado' && crearMovChk && crearMovChk.checked){
           await crearMovimientoDesdeVencimiento(v);
         }
       } else {
-        var nuevoV = {id:uid(), concepto:concepto, fecha:fecha, monto:monto, centroId:centroId, estado:'pendiente'};
+        var nuevoV = {id:uid(), concepto:concepto, fecha:fecha, monto:monto, centroId:centroId,
+          categoriaId:categoriaVencId, subcategoriaId:subcategoriaVencId, estado:'pendiente'};
         await dbInsert('vencimientos', toDbVencimiento(nuevoV));
         STATE.vencimientos.push(nuevoV);
       }
@@ -5675,11 +5867,71 @@ async function handleAction(action, id){
   if(action==='toggle-venc-estado'){
     var vt = STATE.vencimientos.find(function(x){return x.id===id;});
     if(!vt) return;
-    var nuevoEstado = (vt.estado==='pagado') ? 'pendiente' : 'pagado';
+    var nuevoEstado = (vt.estado==='pendiente') ? 'pagado' : 'pendiente'; // pagado o salteado vuelven a pendiente
     try{
       await dbUpdate('vencimientos', id, {estado:nuevoEstado});
       vt.estado = nuevoEstado;
     }catch(e){ STATE.dbError = 'No se pudo actualizar el estado: '+(e.message||e); }
+    render(); return;
+  }
+  if(action==='saltear-venc'){
+    var vs = STATE.vencimientos.find(function(x){return x.id===id;});
+    if(!vs) return;
+    try{
+      await dbUpdate('vencimientos', id, {estado:'salteado'});
+      vs.estado = 'salteado';
+    }catch(e){ STATE.dbError = 'No se pudo actualizar el estado: '+(e.message||e); }
+    render(); return;
+  }
+
+  // ---- VENCIMIENTOS RECURRENTES (V1) ----
+  if(action==='nuevo-vrec'){ STATE.editing = {type:'vrec', id:''}; STATE.vrecFormMsg = null; render(); return; }
+  if(action==='edit-vrec'){ STATE.editing = {type:'vrec', id:id}; STATE.vrecFormMsg = null; render(); return; }
+  if(action==='save-vrec'){
+    var valoresRec = leerFormVenc('vrec');
+    var diaRec = parseInt(valoresRec.dia, 10);
+    var errorRec = null;
+    if(!(valoresRec.concepto||'').trim() || !valoresRec.dia || !valoresRec.desde) errorRec = 'Completá al menos concepto, día del mes y mes "Desde".';
+    else if(!(diaRec>=1 && diaRec<=31)) errorRec = 'El día del mes tiene que ser entre 1 y 31.';
+    else if(valoresRec.hasta && valoresRec.hasta < valoresRec.desde) errorRec = 'El mes "Hasta" no puede ser anterior a "Desde".';
+    if(errorRec){
+      STATE.vrecFormMsg = errorRec;
+      STATE.vencDraft = {form:'vrec', id:id||'', valores:valoresRec};
+      render(); return;
+    }
+    var datosRec = {concepto:valoresRec.concepto.trim(), dia:diaRec, monto:parseFloat(valoresRec.monto)||0,
+      centroId:valoresRec.centroId||'', categoriaId:valoresRec.categoriaId||'', subcategoriaId:valoresRec.subcategoriaId||'',
+      desde:valoresRec.desde, hasta:valoresRec.hasta||''};
+    STATE.vrecFormMsg = null; STATE.dbError = null;
+    try{
+      if(id){
+        var rec = STATE.vencRecurrentes.find(function(x){return x.id===id;});
+        Object.assign(rec, datosRec);
+        await dbUpdate('vencimientos_recurrentes', id, toDbVencRecurrente(rec));
+      } else {
+        var nuevaRec = Object.assign({id:uid()}, datosRec);
+        await dbInsert('vencimientos_recurrentes', toDbVencRecurrente(nuevaRec));
+        STATE.vencRecurrentes.push(nuevaRec);
+      }
+      STATE.editing = null;
+      // Si "Desde" ya llegó, el vencimiento de este mes (y los de atrás) se ven enseguida.
+      if(await generarVencimientosRecurrentes() > 0){
+        STATE.vencimientos = (await dbFetchAll('vencimientos')).map(fromDbVencimiento);
+      }
+    }catch(e){ STATE.dbError = 'No se pudo guardar el vencimiento recurrente: '+(e.message||e); }
+    render(); return;
+  }
+  if(action==='del-vrec'){
+    var recBorrar = STATE.vencRecurrentes.find(function(x){return x.id===id;});
+    STATE.confirmState = { message:'¿Borrar el vencimiento recurrente "'+(recBorrar?recBorrar.concepto:'')+'"? Deja de crearse cada mes; los vencimientos ya creados quedan.', action:'del-vrec-do', id:id };
+    render(); return;
+  }
+  if(action==='del-vrec-do'){
+    try{
+      await dbDelete('vencimientos_recurrentes', id);
+      STATE.vencRecurrentes = STATE.vencRecurrentes.filter(function(r){return r.id!==id;});
+      STATE.vencimientos.forEach(function(v){ if(v.recurrenteId===id) v.recurrenteId = ''; }); // la base hace lo mismo (on delete set null)
+    }catch(e){ STATE.dbError = 'No se pudo borrar el vencimiento recurrente: '+(e.message||e); }
     render(); return;
   }
   if(action==='pagar-venc'){ STATE.vencPagarState = {id:id}; render(); return; }

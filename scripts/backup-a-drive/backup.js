@@ -18,7 +18,7 @@ const GDRIVE_OAUTH_REFRESH_TOKEN = requireEnv('GDRIVE_OAUTH_REFRESH_TOKEN');
 // Mismas tablas (y en el mismo orden) que TABLAS_BACKUP en app.js: así el archivo se puede restaurar
 // desde la pestaña Administración (de a una familia). Un test chequea que las dos listas coincidan.
 // Con la service role key se leen todas las familias (se saltea RLS).
-const TABLAS = ['familias', 'miembros', 'centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
+const TABLAS = ['familias', 'miembros', 'centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos_recurrentes', 'vencimientos', 'deudas',
   'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
 // Columna para ordenar al paginar (sin un orden fijo, las páginas pueden repetir o saltear filas).
 const CLAVE_ORDEN = { miembros: 'user_id', familia_config: 'familia_id.asc,clave',

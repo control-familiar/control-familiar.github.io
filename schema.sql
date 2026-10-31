@@ -159,6 +159,28 @@ create table movimientos (
 );
 create index movimientos_cambio_id_idx on movimientos(cambio_id);
 
+-- Vencimientos recurrentes (V1): plantillas de algo que se paga todos los meses. Al abrir la app,
+-- generar_vencimientos_recurrentes() crea el vencimiento de cada mes que falte. Cambiar una plantilla
+-- afecta solo a los meses que todavía no se generaron.
+create table vencimientos_recurrentes (
+  id uuid primary key default gen_random_uuid(),
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  concepto text not null,
+  monto numeric(14,2) default 0,
+  dia int not null check (dia between 1 and 31), -- si el mes no tiene ese día, se usa el último del mes
+  centro_id uuid,
+  categoria_id uuid,
+  subcategoria_id uuid,
+  desde date not null check (extract(day from desde) = 1),          -- primer mes a generar (día 1)
+  hasta date check (extract(day from hasta) = 1 and hasta >= desde), -- último mes (día 1); null = sin fin
+  generado_hasta date, -- último mes ya generado (día 1): así un vencimiento generado que se borra no vuelve
+  created_at timestamptz default now(),
+  unique (familia_id, id),
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id),
+  foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete set null (categoria_id),
+  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id)
+);
+
 -- Vencimientos
 create table vencimientos (
   id uuid primary key default gen_random_uuid(),
@@ -167,9 +189,18 @@ create table vencimientos (
   fecha date not null,
   monto numeric(14,2) default 0,
   centro_id uuid,
-  estado text default 'pendiente', -- 'pendiente' | 'pagado'
+  categoria_id uuid,     -- con qué categoría sale el movimiento al pagarlo
+  subcategoria_id uuid,
+  estado text default 'pendiente' check (estado in ('pendiente', 'pagado', 'salteado')), -- salteado: ese mes no se paga
+  recurrente_id uuid,    -- plantilla que lo generó (null = cargado a mano)
+  periodo date,          -- mes que cubre (día 1), si lo generó una plantilla
   created_at timestamptz default now(),
-  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id)
+  unique (recurrente_id, periodo), -- cada plantilla genera un solo vencimiento por mes
+  foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id),
+  foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete set null (categoria_id),
+  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id),
+  -- Si se borra la plantilla, los ya generados quedan como vencimientos sueltos.
+  foreign key (familia_id, recurrente_id) references vencimientos_recurrentes(familia_id, id) on delete set null (recurrente_id)
 );
 
 -- Deudas (para la pestaña "Flujo de Caja")
@@ -391,7 +422,8 @@ create table reglas_categorizacion (
 );
 
 -- Índices por familia_id en las tablas donde no lo cubre ya un unique/PK que empiece por familia_id
--- (centros, categorias, subcategorias, movimientos, familia_config, familia_importadores_ocultos, arca_ta).
+-- (centros, categorias, subcategorias, movimientos, vencimientos_recurrentes, familia_config,
+-- familia_importadores_ocultos, arca_ta).
 create index vencimientos_familia_idx on vencimientos(familia_id);
 create index deudas_familia_idx on deudas(familia_id);
 create index usdt_movimientos_familia_idx on usdt_movimientos(familia_id);
@@ -419,6 +451,7 @@ alter table centros enable row level security;
 alter table categorias enable row level security;
 alter table subcategorias enable row level security;
 alter table movimientos enable row level security;
+alter table vencimientos_recurrentes enable row level security;
 alter table vencimientos enable row level security;
 alter table deudas enable row level security;
 alter table usdt_movimientos enable row level security;
@@ -444,8 +477,8 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
-                           'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion']
+  foreach t in array array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos_recurrentes',
+                           'vencimientos', 'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion']
   loop
     execute format($p$
       create policy leer on %1$I for select to authenticated
@@ -493,6 +526,56 @@ create policy todo on arca_ta for all to authenticated
   with check (familia_id = (select familia_actual()));
 
 -- ============================================================
+-- VENCIMIENTOS RECURRENTES
+-- ============================================================
+
+-- Crea los vencimientos que falten de las plantillas de la familia del usuario: de cada una, desde el
+-- mes siguiente al último generado (o desde "desde") hasta el mes de p_hoy (o "hasta", si es antes).
+-- Los meses ya pasados también se crean, pendientes, para marcarlos pagados o salteados (V3). La app
+-- la llama al cargar con su fecha local, así el mes cambia a la medianoche de la familia y no en UTC.
+--
+-- security invoker: corre con los permisos del usuario (RLS). El superadmin no tiene familia, así que
+-- no genera nada. "for update" ordena dos llamadas simultáneas (dos miembros abriendo la app a la vez);
+-- además el unique (recurrente_id, periodo) impide duplicados. Devuelve cuántos vencimientos creó.
+create function generar_vencimientos_recurrentes(p_hoy date default current_date)
+  returns int
+  language plpgsql security invoker set search_path = ''
+as $$
+declare
+  r record;
+  mes date;
+  ultimo date;
+  agregadas int;
+  n int := 0;
+begin
+  for r in select * from public.vencimientos_recurrentes
+           where familia_id = public.familia_actual()
+           for update
+  loop
+    mes := greatest(r.desde, (r.generado_hasta + interval '1 month')::date);
+    ultimo := least(date_trunc('month', p_hoy)::date, coalesce(r.hasta, 'infinity'::date));
+    continue when mes > ultimo;
+    while mes <= ultimo loop
+      insert into public.vencimientos
+        (familia_id, concepto, fecha, monto, centro_id, categoria_id, subcategoria_id, recurrente_id, periodo)
+      values
+        (r.familia_id, r.concepto,
+         mes + least(r.dia, extract(day from (mes + interval '1 month - 1 day'))::int) - 1,
+         r.monto, r.centro_id, r.categoria_id, r.subcategoria_id, r.id, mes)
+      on conflict (recurrente_id, periodo) do nothing;
+      get diagnostics agregadas = row_count;
+      n := n + agregadas;
+      mes := (mes + interval '1 month')::date;
+    end loop;
+    update public.vencimientos_recurrentes set generado_hasta = ultimo where id = r.id;
+  end loop;
+  return n;
+end $$;
+
+revoke execute on function generar_vencimientos_recurrentes(date) from public, anon;
+grant execute on function generar_vencimientos_recurrentes(date) to authenticated;
+
+-- ============================================================
 -- FUNCIONES DEL SUPERADMIN (pestaña Administración)
 --
 -- security definer para poder leer auth.users y escribir pese a
@@ -529,8 +612,8 @@ create function restaurar_familia(p_familia_id uuid, p_datos jsonb)
 as $$
 declare
   -- En orden de dependencias: primero las que otras referencian.
-  tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
+  tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos_recurrentes',
+                         'vencimientos', 'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
   t text;
   filas jsonb;
   columnas text;

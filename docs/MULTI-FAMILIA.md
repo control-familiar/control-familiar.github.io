@@ -183,6 +183,44 @@ En la base, no en el código:
 - Si una familia no tiene ningún importador visible, Importar le dice que se lo pida al soporte.
 - Dummy (I5): Familia Demo ve todos; Familia Prueba tiene ocultos `excel` y `provincia`.
 
+## Vencimientos recurrentes (V1–V6)
+
+Algo que se paga todos los meses (ej. Patín) se carga una vez como **plantilla** y cada mes aparece solo como un
+vencimiento más, que se marca pagado, salteado o se deja pendiente. No es parte del original.
+
+- **Plantilla** (V1): tabla `vencimientos_recurrentes` — concepto, monto, día del mes, centro, categoría y
+  subcategoría, mes `desde` y mes `hasta` opcional (los meses se guardan como día 1). Si el mes no tiene ese día
+  (31 en febrero), vence el último día del mes. Se carga y edita en la pestaña Vencimientos, sección "Vencimientos
+  recurrentes". Para que termine se pone `hasta` o se borra (lo ya generado queda como vencimiento suelto).
+- **Generación al abrir la app** (V1): `cargarTodo()` llama a la función `generar_vencimientos_recurrentes(p_hoy)`
+  con la fecha local (el mes cambia a la medianoche de Argentina, no en UTC), y también después de guardar una
+  plantilla. Es `security invoker`, así que corre con RLS y solo genera lo de la familia del usuario; el
+  superadmin (solo lectura) no la llama, y si la llamara no generaría nada. Se descartó una tarea programada
+  (pg_cron): necesitaría correr sin usuario, saltear RLS y pasar `familia_id` a mano. Si nadie abre la app en
+  el mes no se genera nada, pero tampoco hay nadie para verlo; se genera al abrirla.
+- **Meses atrasados** (V3): se generan todos los que falten desde `desde` (o desde el último generado), aunque
+  ya hayan pasado: quedan pendientes para marcarlos pagados o salteados.
+- **Sin duplicados**: `vencimientos.recurrente_id` + `periodo` (el mes que cubre) con `unique (recurrente_id,
+  periodo)`, y `select ... for update` sobre las plantillas, para dos miembros abriendo la app a la vez.
+  `vencimientos_recurrentes.generado_hasta` guarda el último mes generado: un vencimiento generado que se borra
+  **no vuelve** (para "este mes no se paga" está *saltear*, que deja registro).
+- **Cambios en la plantilla**: valen para los meses que todavía no se generaron. Los ya generados se editan uno por
+  uno, como cualquier vencimiento.
+- **Categoría** (V4): la plantilla y también `vencimientos` (sueltos incluidos) tienen `categoria_id` y
+  `subcategoria_id`; al *pagar y cargar como movimiento*, el movimiento sale categorizado (antes salía sin categoría).
+- **Estado `salteado`** (V5): además de `pendiente` y `pagado` (con `check`). Sale de la lista y del aviso de
+  próximos, no genera movimiento y se ve en el historial "Vencimientos pagados y salteados", desde donde se puede
+  volver a pendiente.
+  Saltear afecta solo a ese vencimiento (ese mes): la plantilla sigue generando los meses siguientes.
+- **Aviso de movimiento ya cargado** (V6): si un vencimiento pendiente con categoría tiene, en su mismo mes, un egreso
+  de esa categoría (y de esa subcategoría, si el vencimiento tiene), la lista muestra "Ya tenés un movimiento de
+  esta categoría el dd/mm/aaaa por $X (contraparte). ¿Marcar pagado?", que lo marca pagado sin crear otro
+  movimiento; el modal de pagar avisa que cargarlo lo duplicaría. Es solo un aviso calculado en la app: no
+  vincula el movimiento con el vencimiento ni cambia la base. Vale para vencimientos sueltos y recurrentes.
+- **Base común** (V2), no una función opcional: es parte de la pestaña Vencimientos y no molesta si no se usa.
+- Backup y restauración: `vencimientos_recurrentes` entra en las dos, antes de `vencimientos` (que la referencia).
+- Dummy: Familia Demo tiene "Patín" (desde el mes pasado, sin categoría) y "Expensas" (desde este mes, en Casa).
+
 ## Backup (D9)
 
 - El backup diario a Drive es **global** (toda la base, con la service role key), y solo existe a nivel
@@ -233,7 +271,7 @@ create function es_superadmin() returns boolean
 
 ### `familia_id` en todas las tablas de datos (D2)
 
-En `centros`, `categorias`, `subcategorias`, `movimientos`, `vencimientos`, `deudas`,
+En `centros`, `categorias`, `subcategorias`, `movimientos`, `vencimientos_recurrentes`, `vencimientos`, `deudas`,
 `usdt_movimientos`, `facturas`, `arca_ta`, `reglas_categorizacion` (y las nuevas: `personas`, `familia_config`,
 `familia_importadores_ocultos`):
 
@@ -380,10 +418,12 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 5 | Funciones activables (D4) | ✅ hecho |
 | 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | ✅ hecho |
 | 7 | Importadores en la base + ocultos por familia (D7) | ✅ hecho |
-| 8 | Documentación (README, guías) y scripts de alta definitivos | 🟡 listo; falta ver andar en Actions el job de tests de seguridad |
+| 8 | Documentación (README, guías) y scripts de alta definitivos | ✅ hecho |
 | 9 | Alta de la primera familia real | pendiente |
 
 Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que todo nazca con `familia_id`.
+
+Fuera de las fases: **vencimientos recurrentes** (V1–V6) ✅ hecho.
 
 ## Pendientes de definir
 
@@ -441,6 +481,12 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | E1 | Documentación | README + Guía de uso (familias) + Guía de soporte (superadmin, nueva) + Instalación y operación (técnica) + este documento (decisiones) |
 | E2 | Scripts definitivos | Se suman `baja_miembro.sql` y `estado.sql`. Borrar una familia entera: sin script por ahora (irreversible; con backup antes, cuando haga falta) |
 | E3 | Tests de seguridad en GitHub Actions | Sí: job `seguridad-db` con Supabase local; bloquea la publicación si falla |
+| V1 | Vencimientos recurrentes | Plantilla (`vencimientos_recurrentes`) + generación al abrir la app con `generar_vencimientos_recurrentes()`; no pg_cron |
+| V2 | ¿Base común u opcional? | Base común |
+| V3 | Meses que quedaron atrás | Se generan todos los que falten, pendientes |
+| V4 | Categoría en vencimientos | Sí, en la plantilla y en cada vencimiento; el movimiento al pagar sale categorizado |
+| V5 | "Este mes no se paga" | Estado `salteado`, solo para ese mes (se puede volver a pendiente) |
+| V6 | Movimiento ya cargado | Aviso en la lista y en el modal de pagar (mismo mes + categoría/subcategoría, egreso); sin vincular |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

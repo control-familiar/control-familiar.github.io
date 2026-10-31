@@ -109,10 +109,15 @@ El botón **Cargar efectivo** (💵; en el celular está en la barra superior) a
 
 ## 7. Vencimientos y tarjeta
 
-**Vencimientos** tiene dos partes:
+**Vencimientos** tiene tres partes:
 
-- **Vencimientos propios:** concepto, contraparte, categoría, centro, fecha y monto. Se pueden editar, borrar o **marcar como pagado**; al pagar elegís entre *marcar pagado y cargarlo como movimiento* o *solo marcar pagado*.
-- **Movimientos con fecha futura** (por ejemplo cuotas de tarjeta), agrupados. No afectan Saldos hasta su fecha.
+- **Vencimientos propios:** recordatorios de algo a pagar, con concepto, fecha, monto, centro y, opcionalmente, categoría y subcategoría. No son movimientos: no cuentan en Saldos ni en reportes. Se pueden editar, borrar, **marcar como pagado** o **saltear**:
+  - al pagar elegís entre *marcar pagado y cargarlo como movimiento* (sale con su categoría) o *solo marcar pagado*;
+  - *saltear* es para cuando ese mes no se paga: sale de la lista sin crear movimiento. Si es recurrente, los meses siguientes siguen apareciendo;
+  - si ya cargaste (o importaste) el gasto, el vencimiento te lo avisa: *"Ya tenés un movimiento de esta categoría el día tanto… ¿Marcar pagado?"*. Busca egresos del mismo mes con la misma categoría (y subcategoría, si el vencimiento tiene); tocándolo se marca pagado sin duplicar el movimiento.
+  Los pagados y salteados quedan en el historial de abajo, desde donde se pueden volver a pendiente.
+- **Vencimientos recurrentes:** para lo que se paga todos los meses (por ejemplo, Patín). Cargás concepto, día del mes, monto, centro, categoría y el mes *Desde* (y *Hasta*, si termina). Cada vez que se abre la app se crea solo el vencimiento de cada mes que falte, incluso los meses ya pasados desde *Desde*. Esos vencimientos se ven con el ícono ↻ y se pagan o saltean como cualquier otro. Si el mes no tiene ese día (el 31 en febrero), vence el último día del mes. Cambiar un recurrente afecta solo a los meses que todavía no se crearon; borrarlo deja los ya creados.
+- **Movimientos con fecha futura** (por ejemplo cuotas de tarjeta), agrupados. Estos sí son movimientos: no afectan Saldos hasta su fecha y, cuando llega, pasan solos a Movimientos.
 
 En **Resumen** aparece un aviso con los vencimientos próximos.
 
