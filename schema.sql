@@ -97,7 +97,7 @@ create table centros (
   nombre text not null,
   color text,  -- color de fondo del chip en Movimientos y ABM, ej: '#4E9D77'
   color_texto text,  -- color de texto del chip (opcional); si es null, se calcula el contraste automático
-  entidad text,  -- banco/billetera para el logo en Saldos: 'santander' | 'nacion' | 'provincia' | 'icbc' | 'mercadopago' | null
+  entidad text,  -- banco/billetera para el logo en Saldos: 'santander' | 'nacion' | 'provincia' | 'icbc' | 'macro' | 'mercadopago' | null
   moneda text not null default 'ARS' check (moneda in ('ARS','USD','AMBAS')),  -- 'AMBAS': la cuenta tiene un saldo en pesos y otro en dólares
   titular_id uuid,  -- usuario de la familia titular de la cuenta (D5); null = sin titular
   created_at timestamptz default now(),
@@ -392,6 +392,7 @@ insert into importadores (codigo, nombre, orden) values
   ('santander', 'Santander', 2),
   ('nacion', 'Nación', 3),
   ('provincia', 'Provincia', 4),
+  ('macro', 'Macro', 5),
   ('tarjeta_nacion', 'Nación', 11),
   ('tarjeta_santander', 'Santander', 12),
   ('tarjeta_provincia', 'Provincia', 13),

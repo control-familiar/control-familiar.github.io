@@ -12,7 +12,7 @@ export function catalogoTodoPrendido() {
 }
 /** Los importadores de schema.sql (D7), todos activos y visibles. */
 export function importadoresTodos() {
-  return [['mp', 'Mercado Pago'], ['santander', 'Santander'], ['nacion', 'Nación'], ['provincia', 'Provincia'],
+  return [['mp', 'Mercado Pago'], ['santander', 'Santander'], ['nacion', 'Nación'], ['provincia', 'Provincia'], ['macro', 'Macro'],
     ['tarjeta_nacion', 'Nación'], ['tarjeta_santander', 'Santander'], ['tarjeta_provincia', 'Provincia'],
     ['tarjeta_mercadopago', 'Mercado Pago'], ['excel', 'Excel histórico (ya categorizado)']]
     .map(([codigo, nombre], i) => ({ codigo, nombre, activo: true, orden: i }));

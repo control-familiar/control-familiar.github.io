@@ -292,6 +292,24 @@ describe('parseNacion', () => {
   });
 });
 
+describe('parseMacro', () => {
+  it('lee la tabla copiada del home banking: ignora el encabezado, el Nro. de transacción y el Saldo', () => {
+    const raw = [
+      'Fecha\tNro. transacción\tDescripción\tImporte\tSaldo\t',
+      '30/10/2026\t1949283848\tCAPITALIZACION AH\t$ 100,79\t$ 487.767,67\t ',
+      '21/10/2026\t1004048069\tTR ANSES SUAF 33637617449 881253246300826\t$ 113.829,00\t$ 487.666,88\t ',
+      '14/10/2026\t973653\tMETROGAS\t-$ 8.239,33\t$ 373.837,88\t ',
+      '13/10/2026\t316700\tRENTAS PROVINCIA BS.AS. INMOBI\t-$ 22.299,70\t$ 717.015,67',
+    ].join('\r\n');
+    expect(win.parseMacro(raw)).toEqual([
+      { fecha: '30-10-26', proveedor: 'CAPITALIZACION AH', tipo: '', monto: 100.79, ingreso: '100,79', egreso: '' },
+      { fecha: '21-10-26', proveedor: 'TR ANSES SUAF 33637617449 881253246300826', tipo: '', monto: 113829, ingreso: '113.829,00', egreso: '' },
+      { fecha: '14-10-26', proveedor: 'METROGAS', tipo: '', monto: -8239.33, ingreso: '', egreso: '8.239,33' },
+      { fecha: '13-10-26', proveedor: 'RENTAS PROVINCIA BS.AS. INMOBI', tipo: '', monto: -22299.7, ingreso: '', egreso: '22.299,70' },
+    ]);
+  });
+});
+
 describe('parseSantander (cuenta)', () => {
   it('agrupa por bloques de fecha y extrae proveedor desde "De X/Y" o desde el tipo', () => {
     const raw = [

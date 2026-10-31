@@ -18,7 +18,7 @@ describe('Importar: opciones según los importadores de la familia', () => {
 
   it('con todo visible, ofrece las cuentas, "Tarjeta de Crédito" y el Excel, en el orden de la tabla', () => {
     win.render();
-    expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'provincia', 'tarjeta', 'excel']);
+    expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'provincia', 'macro', 'tarjeta', 'excel']);
     win.STATE.importEntidad = 'tarjeta';
     win.render();
     expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'santander', 'provincia', 'mercadopago']);
@@ -28,7 +28,7 @@ describe('Importar: opciones según los importadores de la familia', () => {
     win.STATE.importadoresOcultos = ['excel', 'provincia', 'tarjeta_santander'];
     win.STATE.importEntidad = 'tarjeta';
     win.render();
-    expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'tarjeta']);
+    expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'macro', 'tarjeta']);
     expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'provincia', 'mercadopago']);
   });
 
@@ -100,7 +100,7 @@ describe('Importadores: carga y edición del superadmin', () => {
 
   it('Administración muestra un tilde por importador (tildado = visible)', () => {
     const tildes = [...win.document.querySelectorAll('[data-action="importador-alternar"]')];
-    expect(tildes).toHaveLength(9);
+    expect(tildes).toHaveLength(10);
     expect(tildes.find(t => t.getAttribute('data-id') === 'excel').checked).toBe(false);
     expect(tildes.find(t => t.getAttribute('data-id') === 'mp').checked).toBe(true);
     expect(win.document.getElementById('app').textContent).toContain('Tarjeta de Crédito · Nación');

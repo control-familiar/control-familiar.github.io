@@ -155,3 +155,12 @@ describe('ABM: Subcategorías', () => {
     expect(win.STATE.subcategorias.find(s => s.id === 'sub-verd')).toBeUndefined();
   });
 });
+
+describe('Centros: entidad Macro', () => {
+  it('se puede elegir como Entidad y muestra su logo (también si solo el nombre dice "Macro")', () => {
+    const win = loadApp();
+    expect(win.ENTIDADES.map(e => e.id)).toContain('macro');
+    expect(win.logoEntidadHtml({ entidad: 'macro' })).toContain('assets/logos/macro.webp');
+    expect(win.logoEntidadHtml({ nombre: 'Caja de ahorro Macro' })).toContain('alt="Macro"');
+  });
+});

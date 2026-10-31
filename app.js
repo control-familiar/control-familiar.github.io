@@ -1501,6 +1501,34 @@ function parseNacion(raw){
   return rows;
 }
 
+// Macro (cuenta): una fila por movimiento, copiada de la tabla del home banking, con columnas Fecha, Nro.
+// transacción, Descripción, Importe ("$ 100,79" o "-$ 8.239,33") y Saldo. El encabezado y las filas que no
+// empiezan con fecha se ignoran.
+function parseMacro(raw){
+  var reFecha = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+  var reImporte = /^(-?)\s*\$\s*([\d.,]+)$/;
+  var rows = [];
+  raw.split('\n').forEach(function(line){
+    var parts = line.split('\t').map(function(p){ return p.trim(); });
+    if(parts.length < 4) parts = line.trim().split(/\s{2,}/);
+    var fm = (parts[0]||'').match(reFecha);
+    if(!fm || parts.length < 4) return;
+    var mm = parts[3].match(reImporte);
+    if(!mm) return;
+    var val = parseMonto(mm[2]);
+    var monto = mm[1]==='-' ? -Math.abs(val) : Math.abs(val);
+    rows.push({
+      fecha: fm[1]+'-'+fm[2]+'-'+fm[3].slice(2),
+      proveedor: parts[2].replace(/\s+/g, ' ') || 'Movimiento',
+      tipo: '',
+      monto: monto,
+      ingreso: monto>0 ? formatMonto(monto) : '',
+      egreso: monto<0 ? formatMonto(monto) : ''
+    });
+  });
+  return rows;
+}
+
 function extraerProveedorSantander(tipo, detalle){
   var m = detalle.match(/^(De|A)\s+(.+)$/i);
   if(m){
@@ -1754,7 +1782,7 @@ function parseExcelHistorico(raw){
 // Importadores (D7): las filas de la tabla "importadores" se conectan por código con su parser. Los de
 // tarjeta ("tarjeta_<banco>") se eligen en pantalla como "Tarjeta de Crédito" + banco. Agregar un banco =
 // parser acá + fila en la tabla (schema.sql).
-var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia',
+var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia', 'macro',
   'tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'excel'];
 function esImportadorTarjeta(codigo){ return codigo.indexOf('tarjeta_')===0; }
 var IMPORTADORES_SIN_PARSER_AVISADOS = {};
@@ -1785,6 +1813,7 @@ function runParser(){
   if(entidad === 'santander') return { rows: parseSantander(raw), error: null };
   if(entidad === 'nacion') return { rows: parseNacion(raw), error: null };
   if(entidad === 'provincia') return { rows: parseProvincia(raw), error: null };
+  if(entidad === 'macro') return { rows: parseMacro(raw), error: null };
   if(entidad === 'tarjeta'){
     var venc = STATE.importVencimiento || '';
     if(!venc.trim()) return { rows: [], error: 'Ingresá la fecha de vencimiento del resumen.' };
@@ -2036,6 +2065,7 @@ var ENTIDADES = [
   {id:'nacion', label:'Nación'},
   {id:'provincia', label:'Provincia'},
   {id:'icbc', label:'ICBC'},
+  {id:'macro', label:'Macro'},
   {id:'mercadopago', label:'Mercado Pago'}
 ];
 var MONEDAS_CENTRO = [
@@ -3468,10 +3498,11 @@ function logoEntidadHtml(centro){
     else if(n.indexOf('nacion')>-1) e = 'nacion';
     else if(n.indexOf('provincia')>-1) e = 'provincia';
     else if(n.indexOf('icbc')>-1) e = 'icbc';
+    else if(n.indexOf('macro')>-1) e = 'macro';
     else if(n.indexOf('mercado pago')>-1 || n.indexOf('mercadopago')>-1) e = 'mercadopago';
   }
-  var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', mercadopago:'mercadopago.webp'}[e];
-  var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', mercadopago:'Mercado Pago'}[e];
+  var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', macro:'macro.webp', mercadopago:'mercadopago.webp'}[e];
+  var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', macro:'Macro', mercadopago:'Mercado Pago'}[e];
   if(!archivo) return '';
   return '<span class="entidad-logo-wrap"><img class="entidad-logo" src="assets/logos/'+archivo+'" alt="'+nombreEntidad+'" title="'+nombreEntidad+'"></span>';
 }
