@@ -134,3 +134,34 @@ describe('Botón flotante "+ Efectivo"', () => {
     expect(win.document.querySelector('.fab-efectivo')).toBe(null);
   });
 });
+
+describe('Cargar efectivo: teclado de Android', () => {
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const ancho = (win, px) => Object.defineProperty(win, 'innerWidth', { value: px, configurable: true });
+
+  it('abrir el teclado (resize sin cruzar el breakpoint) no redibuja: el Monto conserva el foco y lo escrito', async () => {
+    const win = loadApp();
+    seedBase(win);
+    ancho(win, 390);
+    win.dispatchEvent(new win.Event('resize')); // la app ya quedó en vista celular
+    await esperar(250);
+    await win.handleAction('abrir-efectivo');
+    const monto = $(win, 'ef-monto');
+    monto.value = '1500';
+    win.dispatchEvent(new win.Event('resize'));
+    await esperar(250);
+    expect($(win, 'ef-monto')).toBe(monto);
+    expect($(win, 'ef-monto').value).toBe('1500');
+  });
+
+  it('cruzar el breakpoint (rotar o agrandar la ventana) sí redibuja', async () => {
+    const win = loadApp();
+    seedBase(win);
+    await win.handleAction('abrir-efectivo');
+    const monto = $(win, 'ef-monto');
+    ancho(win, 390);
+    win.dispatchEvent(new win.Event('resize'));
+    await esperar(250);
+    expect($(win, 'ef-monto')).not.toBe(monto);
+  });
+});

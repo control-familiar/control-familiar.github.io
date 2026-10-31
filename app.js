@@ -7020,8 +7020,16 @@ document.addEventListener('click', function(ev){
 // Re-renderizar al cruzar el breakpoint mobile (esVistaMobile() se recalcula recién en el próximo
 // render): así, si se rota el celular o se agranda/achica la ventana, el colapso de Filtros en
 // Movimientos y el armado de "Mes actual" en la Comparativa mensual se actualizan solos.
+// Solo al cruzar el breakpoint: en Android abrir el teclado achica la ventana (dispara 'resize'), y
+// re-renderizar ahí recrea el input con foco, cierra el teclado y pierde lo escrito.
 var resizeTimeoutId = null;
+var vistaMobileAnterior = esVistaMobile();
 window.addEventListener('resize', function(){
   clearTimeout(resizeTimeoutId);
-  resizeTimeoutId = setTimeout(function(){ if(STATE.ready) render(); }, 150);
+  resizeTimeoutId = setTimeout(function(){
+    var vistaMobile = esVistaMobile();
+    if(vistaMobile === vistaMobileAnterior) return;
+    vistaMobileAnterior = vistaMobile;
+    if(STATE.ready) render();
+  }, 150);
 });
