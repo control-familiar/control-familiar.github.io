@@ -10,8 +10,17 @@ export function catalogoTodoPrendido() {
     { clave: 'sueldo_dias_mes_siguiente', tipo: 'numero', descripcion: 'Sueldo', valorDefault: '3', grupo: 'Reglas', orden: 1 }
   ];
 }
+/** Los importadores de schema.sql (D7), todos activos y visibles. */
+export function importadoresTodos() {
+  return [['mp', 'Mercado Pago'], ['santander', 'Santander'], ['nacion', 'Nación'], ['provincia', 'Provincia'],
+    ['tarjeta_nacion', 'Nación'], ['tarjeta_santander', 'Santander'], ['tarjeta_provincia', 'Provincia'],
+    ['tarjeta_mercadopago', 'Mercado Pago'], ['excel', 'Excel histórico (ya categorizado)']]
+    .map(([codigo, nombre], i) => ({ codigo, nombre, activo: true, orden: i }));
+}
 export function prenderTodo(win) {
   win.STATE.configCatalogo = catalogoTodoPrendido();
+  win.STATE.importadores = importadoresTodos();
+  win.STATE.importadoresOcultos = [];
   return win.STATE;
 }
 

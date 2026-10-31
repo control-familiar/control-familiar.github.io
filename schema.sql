@@ -327,6 +327,46 @@ insert into config_catalogo (clave, tipo, descripcion, valor_default, grupo, ord
    'Sueldo de fin de mes: los ingresos de Sueldo de los últimos N días del mes cuentan en el Resumen para el mes siguiente. 0: cuentan en su mes.',
    '0', 'Reglas', 1);
 
+-- ============================================================
+-- IMPORTADORES (D7)
+--
+-- importadores define cada forma de importar (global). Cada fila
+-- se conecta por "codigo" con su parser en app.js
+-- (PARSERS_IMPORTACION): agregar un banco = parser en el código +
+-- insert acá (y migración cuando haya familias reales). Igual que
+-- el catálogo de configuración, no se edita desde la app.
+--
+-- familia_importadores_ocultos guarda solo lo que cada familia NO
+-- ve (lista restrictiva): un importador nuevo les aparece a todas.
+-- Lo edita el superadmin desde Administración (S4).
+-- ============================================================
+
+create table importadores (
+  codigo text primary key,
+  nombre text not null,
+  activo boolean not null default true,  -- false: no lo ve ninguna familia
+  orden integer not null default 0
+);
+
+create table familia_importadores_ocultos (
+  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
+  importador_codigo text not null references importadores(codigo) on delete cascade,
+  primary key (familia_id, importador_codigo)
+);
+
+-- Los de tarjeta empiezan con "tarjeta_": en Importar se eligen con "Tarjeta de Crédito" + banco,
+-- y no aparecen si la familia tiene apagada la función Tarjetas.
+insert into importadores (codigo, nombre, orden) values
+  ('mp', 'Mercado Pago', 1),
+  ('santander', 'Santander', 2),
+  ('nacion', 'Nación', 3),
+  ('provincia', 'Provincia', 4),
+  ('tarjeta_nacion', 'Nación', 11),
+  ('tarjeta_santander', 'Santander', 12),
+  ('tarjeta_provincia', 'Provincia', 13),
+  ('tarjeta_mercadopago', 'Mercado Pago', 14),
+  ('excel', 'Excel histórico (ya categorizado)', 20);
+
 -- Caché del Token+Sign de WSAA (dura ~12hs; pedir uno nuevo antes de que expire el
 -- anterior hace que ARCA lo rechace). La usa la Edge Function facturar-arca con la
 -- sesión del usuario, así que cada familia tiene el suyo.
@@ -351,7 +391,7 @@ create table reglas_categorizacion (
 );
 
 -- Índices por familia_id en las tablas donde no lo cubre ya un unique/PK que empiece por familia_id
--- (centros, categorias, subcategorias, movimientos, familia_config, arca_ta).
+-- (centros, categorias, subcategorias, movimientos, familia_config, familia_importadores_ocultos, arca_ta).
 create index vencimientos_familia_idx on vencimientos(familia_id);
 create index deudas_familia_idx on deudas(familia_id);
 create index usdt_movimientos_familia_idx on usdt_movimientos(familia_id);
@@ -385,6 +425,8 @@ alter table usdt_movimientos enable row level security;
 alter table facturas enable row level security;
 alter table config_catalogo enable row level security;
 alter table familia_config enable row level security;
+alter table importadores enable row level security;
+alter table familia_importadores_ocultos enable row level security;
 alter table arca_ta enable row level security;
 alter table reglas_categorizacion enable row level security;
 
@@ -433,6 +475,18 @@ create policy editar on familia_config for update to authenticated
 create policy borrar on familia_config for delete to authenticated
   using ((select es_superadmin()));
 
+-- importadores: los leen todos los logueados; no se escriben desde la app.
+create policy leer on importadores for select to authenticated using (true);
+
+-- familia_importadores_ocultos: la familia la lee (la app la usa para armar Importar); solo el superadmin
+-- la escribe, en cualquier familia (S4).
+create policy leer on familia_importadores_ocultos for select to authenticated
+  using (familia_id = (select familia_actual()) or (select es_superadmin()));
+create policy insertar on familia_importadores_ocultos for insert to authenticated
+  with check ((select es_superadmin()));
+create policy borrar on familia_importadores_ocultos for delete to authenticated
+  using ((select es_superadmin()));
+
 -- arca_ta: solo la familia (son credenciales temporales de ARCA; el superadmin no las ve).
 create policy todo on arca_ta for all to authenticated
   using (familia_id = (select familia_actual()))
@@ -476,7 +530,7 @@ as $$
 declare
   -- En orden de dependencias: primero las que otras referencian.
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config'];
+                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
   t text;
   filas jsonb;
   columnas text;
@@ -500,7 +554,7 @@ begin
     if exists (select 1 from jsonb_array_elements(filas) e where e ->> 'familia_id' is distinct from p_familia_id::text) then
       raise exception 'El backup tiene filas de otra familia en %', t;
     end if;
-    if t <> 'familia_config' then
+    if t not in ('familia_config', 'familia_importadores_ocultos') then
       execute format('select count(*) from public.%I x join jsonb_array_elements($1) e on x.id = (e ->> ''id'')::uuid
                       where x.familia_id <> $2', t)
         using filas, p_familia_id into n;
@@ -524,6 +578,14 @@ begin
 
     -- Un centro cuyo titular ya no es miembro de esta familia vuelve sin titular (los miembros no se
     -- restauran: dependen de los usuarios de Auth).
+    -- Importadores ocultos que ya no existen: se descartan.
+    if t = 'familia_importadores_ocultos' then
+      select coalesce(jsonb_agg(e), '[]') into filas
+      from jsonb_array_elements(filas) e
+      where exists (select 1 from public.importadores i where i.codigo = e ->> 'importador_codigo');
+      continue when jsonb_array_length(filas) = 0;
+    end if;
+
     if t = 'centros' then
       select jsonb_agg(case
                when e ->> 'titular_id' is not null and not exists (
@@ -546,7 +608,9 @@ begin
     execute format('insert into public.%1$I (%2$s) select %2$s from jsonb_populate_recordset(null::public.%1$I, $1)
                     on conflict %3$s do %4$s',
                    t, columnas,
-                   case when t = 'familia_config' then '(familia_id, clave)' else '(id)' end,
+                   case t when 'familia_config' then '(familia_id, clave)'
+                          when 'familia_importadores_ocultos' then '(familia_id, importador_codigo)'
+                          else '(id)' end,
                    coalesce('update set ' || actualizar, 'nothing'))
       using filas;
     get diagnostics n = row_count;

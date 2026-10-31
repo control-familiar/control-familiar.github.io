@@ -137,6 +137,11 @@ from familias f, config_catalogo c
 where f.nombre = 'Familia Demo' and c.clave like 'feature.%';
 
 -- ---------- Familia Prueba (casi vacía) ----------
+-- Familia Prueba no ve el Excel histórico ni la cuenta de Provincia (para probar que se ocultan).
+insert into familia_importadores_ocultos (familia_id, importador_codigo)
+select f.id, i.codigo from familias f, importadores i
+where f.nombre = 'Familia Prueba' and i.codigo in ('excel', 'provincia');
+
 
 insert into centros (familia_id, codigo, nombre, entidad)
 select id, 'MPP', 'Mercado Pago', 'mercadopago' from familias where nombre = 'Familia Prueba';

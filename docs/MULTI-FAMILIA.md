@@ -164,13 +164,23 @@ Relevamiento (fase 6) y lo que se decidió:
 
 En la base, no en el código:
 
-- `importadores (codigo, nombre, activo, orden)` — **global**. La leen todos; la modifica el superadmin.
+- `importadores (codigo, nombre, activo, orden)` — **global**. La leen todos los logueados. Se modifica solo en
+  `schema.sql` (y con una migración cuando haya familias reales), junto con el parser: no desde la app (I2, como K1).
 - `familia_importadores_ocultos (familia_id, importador_codigo)` — lista **restrictiva** de qué importadores
   no ve cada familia. Se guarda lo que se **oculta** (no lo que se ve), así un importador nuevo les aparece a
   todas automáticamente.
 - El parser de cada banco sigue siendo JavaScript en `app.js`; se conecta con la fila por `codigo`
   (`'santander'` → `parseSantander`). Agregar un banco = parser en el código + migración que inserta la fila.
 - Casos borde: fila sin parser en el código → no se muestra (y se avisa en consola); parser sin fila → no aparece.
+- **Una fila por cada forma de importar** (I1): `mp`, `santander`, `nacion`, `provincia`, los resúmenes de tarjeta
+  `tarjeta_nacion`, `tarjeta_santander`, `tarjeta_provincia`, `tarjeta_mercadopago` y `excel` (Excel histórico, I4).
+  En Importar los de tarjeta (prefijo `tarjeta_`) se eligen como "Tarjeta de Crédito" + banco; esa opción aparece si
+  hay alguno visible y la función Tarjetas está prendida. En `app.js`: `PARSERS_IMPORTACION` e `importadoresVisibles()`.
+- El superadmin oculta o muestra importadores en **Administración → Importadores de _familia elegida_**, con un tilde
+  por importador (tildado = visible) (I3). La lista de ocultos entra en el backup y la restauración (los que ya no
+  existen se descartan al restaurar).
+- Si una familia no tiene ningún importador visible, Importar le dice que se lo pida al soporte.
+- Dummy (I5): Familia Demo ve todos; Familia Prueba tiene ocultos `excel` y `provincia`.
 
 ## Backup (D9)
 
@@ -362,11 +372,11 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 0 | Fork, Pages, Supabase nuevo, apuntar la app al proyecto nuevo y rutas relativas | ✅ hecho |
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
 | 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | ✅ hecho |
-| 3 | Titulares de los centros (D5) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
+| 3 | Titulares de los centros (D5) | ✅ hecho |
 | 4 | Catálogo de configuración + valores por familia (D3) | ✅ hecho |
-| 5 | Funciones activables (D4) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
-| 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
-| 7 | Importadores en la base + ocultos por familia (D7) | pendiente |
+| 5 | Funciones activables (D4) | ✅ hecho |
+| 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | ✅ hecho |
+| 7 | Importadores en la base + ocultos por familia (D7) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
 | 8 | Documentación (README, guías) y scripts de alta definitivos | pendiente |
 | 9 | Alta de la primera familia real | pendiente |
 
@@ -422,6 +432,11 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | O5 | Qué ve el superadmin | Cada familia con sus funciones, como la ve ella |
 | T1 | Nombre de cada usuario | `miembros.nombre`, cargado con `alta_miembro.sql` (vacío = lo que va antes de la @) |
 | R1–R11 | Reglas escritas en el código | Ver la tabla del relevamiento en D6 |
+| I1 | Filas de importadores | Una por forma de importar (cada banco de tarjeta aparte) |
+| I2 | Quién cambia `importadores` | Solo `schema.sql` / migraciones, junto con el parser |
+| I3 | Dónde oculta el superadmin | Administración, un tilde por importador |
+| I4 | Excel histórico | Un importador más, que se puede ocultar |
+| I5 | Dummy | Prueba con `excel` y `provincia` ocultos |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

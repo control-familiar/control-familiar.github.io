@@ -19,10 +19,10 @@ describe('Backup: tablas incluidas', () => {
     expect(tablasDelScriptDiario()).toEqual(Array.from(win.TABLAS_BACKUP));
   });
 
-  it('incluye todas las tablas del schema salvo arca_ta (token temporal), superadmins y config_catalogo (global, en el schema)', () => {
+  it('incluye todas las tablas del schema salvo arca_ta (token temporal), superadmins y las globales que define el schema (config_catalogo, importadores)', () => {
     const win = loadApp();
     const schema = readFileSync(path.join(ROOT, 'schema.sql'), 'utf8');
-    const fueraDelBackup = ['arca_ta', 'superadmins', 'config_catalogo'];
+    const fueraDelBackup = ['arca_ta', 'superadmins', 'config_catalogo', 'importadores'];
     const tablasSchema = [...schema.matchAll(/create table (\w+)/g)].map(m => m[1]).filter(t => !fueraDelBackup.includes(t));
     expect([...win.TABLAS_BACKUP].sort()).toEqual(tablasSchema.sort());
   });

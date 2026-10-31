@@ -23,7 +23,7 @@ declare
   -- Tablas de datos de cada familia (todas con familia_id)
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
                          'deudas', 'usdt_movimientos', 'facturas',
-                         'familia_config', 'arca_ta', 'reglas_categorizacion'];
+                         'familia_config', 'familia_importadores_ocultos', 'arca_ta', 'reglas_categorizacion'];
   t text;
   n int;
   ok text[] := '{}';
@@ -82,6 +82,7 @@ begin
     insert into public.arca_ta (familia_id, ambiente, token, sign, expira_en) values
       (fa, 'homologacion', 'token A', 'sign A', now() + interval '1 hour'),
       (fb, 'homologacion', 'token B', 'sign B', now() + interval '1 hour');
+    insert into public.familia_importadores_ocultos (familia_id, importador_codigo) values (fa, 'excel'), (fb, 'excel');
     insert into public.reglas_categorizacion (familia_id, proveedor, categoria) values
       (fa, 'Prov A', 'Cat A'), (fb, 'Prov B', 'Cat B');
 
@@ -249,6 +250,24 @@ begin
     if n <> 0 then raise exception 'FALLA: A cambió un default del catálogo'; end if;
     ok := array_append(ok, 'A: lee el catálogo de configuración pero no lo escribe');
 
+    -- Importadores (D7): A lee la tabla global y su lista de ocultos, pero no escribe ninguna
+    select count(*) into n from public.importadores;
+    if n < 9 then raise exception 'FALLA: A no ve los importadores'; end if;
+    begin
+      insert into public.importadores (codigo, nombre) values ('__intruso', 'X');
+      raise exception 'FALLA: A agregó un importador';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+      insert into public.familia_importadores_ocultos (importador_codigo) values ('mp');
+      raise exception 'FALLA: A ocultó un importador de su familia';
+    exception when insufficient_privilege then null;
+    end;
+    delete from public.familia_importadores_ocultos where familia_id = fa;
+    get diagnostics n = row_count;
+    if n <> 0 then raise exception 'FALLA: A volvió a mostrar un importador oculto'; end if;
+    ok := array_append(ok, 'A: lee los importadores y sus ocultos, pero no los cambia');
+
     -- config_valor(): el valor propio o, si no tiene, el default
     if public.config_valor('arca_cuit') is distinct from '20000000001' then
       raise exception 'FALLA: config_valor() no devuelve el valor propio de A';
@@ -379,7 +398,7 @@ begin
     exception when insufficient_privilege then null;
     end;
     foreach t in array tablas loop
-      continue when t = 'familia_config';
+      continue when t in ('familia_config', 'familia_importadores_ocultos');
       execute format('update public.%I set familia_id = familia_id where familia_id in ($1, $2)', t) using fa, fb;
       get diagnostics n = row_count;
       if n <> 0 then raise exception 'FALLA: el superadmin editó % filas en %', n, t; end if;
@@ -411,6 +430,20 @@ begin
       if n <> 0 then raise exception 'FALLA: el superadmin cambió el catálogo desde la app'; end if;
     end;
     ok := array_append(ok, 'superadmin: la configuración se valida por tipo y contra el catálogo, que no se edita desde la app');
+
+    insert into public.familia_importadores_ocultos (familia_id, importador_codigo) values (fb, 'mp');
+    delete from public.familia_importadores_ocultos where familia_id = fa and importador_codigo = 'excel';
+    get diagnostics n = row_count;
+    if n <> 1 then raise exception 'FALLA: el superadmin no pudo mostrar un importador de A'; end if;
+    begin
+      insert into public.familia_importadores_ocultos (familia_id, importador_codigo) values (fa, '__no_existe');
+      raise exception 'FALLA: se ocultó un importador que no existe';
+    exception when foreign_key_violation then null;
+    end;
+    update public.importadores set activo = false where codigo = 'mp';
+    get diagnostics n = row_count;
+    if n <> 0 then raise exception 'FALLA: el superadmin cambió la tabla de importadores desde la app'; end if;
+    ok := array_append(ok, 'superadmin: oculta y muestra importadores de cualquier familia; la tabla global no se edita desde la app');
 
     -- admin_miembros(): ve los emails de los miembros de todas las familias
     select count(*) into n from public.admin_miembros()
@@ -470,11 +503,18 @@ begin
     perform public.restaurar_familia(fc, jsonb_build_object(
       'familia', jsonb_build_object('id', fc, 'nombre', '__test C__'),
       'categorias', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'nombre', 'Cat C')),
+      -- un importador oculto que ya no existe se descarta
+      'familia_importadores_ocultos', jsonb_build_array(
+        jsonb_build_object('familia_id', fc, 'importador_codigo', 'excel'),
+        jsonb_build_object('familia_id', fc, 'importador_codigo', '__ya_no_existe')),
       -- su titular no es miembro de C: el centro vuelve sin titular en vez de fallar
       'centros', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'codigo', 'C1', 'nombre', 'Centro C', 'titular_id', ua))));
     if not exists (select 1 from public.familias where id = fc and nombre = '__test C__')
        or not exists (select 1 from public.categorias where familia_id = fc) then
       raise exception 'FALLA: restaurar_familia() no recreó la familia borrada';
+    end if;
+    if (select count(*) from public.familia_importadores_ocultos where familia_id = fc) <> 1 then
+      raise exception 'FALLA: restaurar_familia() no descartó el importador oculto que ya no existe';
     end if;
     if not exists (select 1 from public.centros where familia_id = fc and codigo = 'C1' and titular_id is null) then
       raise exception 'FALLA: restaurar_familia() no dejó sin titular un centro cuyo titular no es de la familia';

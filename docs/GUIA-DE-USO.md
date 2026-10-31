@@ -99,7 +99,7 @@ El botón **Cargar efectivo** (💵; en el celular está en la barra superior) a
 
 **Importar** convierte el texto copiado de un resumen en movimientos.
 
-1. Elegí la **Entidad**: Mercado Pago, Santander, Nación, Provincia, Tarjeta de Crédito o *Excel histórico* (ya categorizado).
+1. Elegí la **Entidad**: Mercado Pago, Santander, Nación, Provincia, Tarjeta de Crédito o *Excel histórico* (ya categorizado). Ves los que están habilitados para tu familia; si te falta uno, pedíselo al soporte.
 2. Para *Tarjeta de Crédito* indicá además Banco, Vencimiento del resumen y, opcionalmente, la marca.
 3. Pegá el texto del resumen en el cuadro y tocá **Previsualizar**.
 4. Revisá la tabla: podés corregir centro, categoría y subcategoría de cada fila. Las **reglas de categorización** completan las que coincidan, y los **posibles duplicados** (mismo centro, contraparte, monto y fecha que algo ya cargado) quedan marcados.

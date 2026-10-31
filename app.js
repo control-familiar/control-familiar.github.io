@@ -23,6 +23,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   adminMiembros:[], adminMiembrosError:null, backupArchivo:null, backupFamiliaRestaurar:'',
   configCatalogo:[], configMsg:null,
   miembrosFamilia:[], // usuarios de la familia (D5: titulares de los centros), [{userId, nombre}]
+  importadores:[], importadoresOcultos:[], importadoresMsg:null, // D7
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -351,7 +352,7 @@ function fromDbConfigCatalogo(r){
 // familia, y familia_id lo completa la base al insertar); el superadmin ve todas, así que acá se
 // filtra por la familia elegida en el selector.
 var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-  'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config'];
+  'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'familia_config', 'familia_importadores_ocultos'];
 
 // opciones.todasLasFamilias: sin filtrar por la familia elegida (backup global del superadmin).
 async function dbFetchAll(table, ordenarPor, opciones){
@@ -457,6 +458,11 @@ async function cargarTodo(){
   });
   var configuracion = await dbFetchAll('familia_config');
   STATE.configuracion = configuracion.map(fromDbConfiguracion);
+  // Importadores (D7): los globales y los que esta familia tiene ocultos.
+  STATE.importadores = (await dbFetchAll('importadores')).map(function(r){
+    return { codigo:r.codigo, nombre:r.nombre||r.codigo, activo:r.activo!==false, orden:Number(r.orden)||0 };
+  }).sort(function(a, b){ return (a.orden - b.orden) || a.codigo.localeCompare(b.codigo); });
+  STATE.importadoresOcultos = (await dbFetchAll('familia_importadores_ocultos')).map(function(r){ return r.importador_codigo; });
 
   var [centros, categorias, subcategorias, movimientos, vencimientos] = await Promise.all([
     dbFetchAll('centros'), dbFetchAll('categorias'), dbFetchAll('subcategorias'), dbFetchAll('movimientos', 'created_at'), dbFetchAll('vencimientos')
@@ -535,7 +541,7 @@ async function elegirFamilia(familiaId){
   try{ localStorage.setItem('controlFamiliaSuperadmin', familiaId); }catch(e){}
   STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false};
   STATE.editing = null; STATE.movSeleccionados = []; STATE.movPaginaActual = 1; STATE.reglasPaginaActual = 1;
-  STATE.incompletosSnapshotIds = null; STATE.dbError = null; STATE.configMsg = null;
+  STATE.incompletosSnapshotIds = null; STATE.dbError = null; STATE.configMsg = null; STATE.importadoresMsg = null;
   STATE.ready = false;
   render();
   try{
@@ -1554,6 +1560,29 @@ function parseExcelHistorico(raw){
   return rows;
 }
 
+// Importadores (D7): las filas de la tabla "importadores" se conectan por código con su parser. Los de
+// tarjeta ("tarjeta_<banco>") se eligen en pantalla como "Tarjeta de Crédito" + banco. Agregar un banco =
+// parser acá + fila en la tabla (schema.sql).
+var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia',
+  'tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'excel'];
+function esImportadorTarjeta(codigo){ return codigo.indexOf('tarjeta_')===0; }
+var IMPORTADORES_SIN_PARSER_AVISADOS = {};
+// Los que ve la familia: activos, con parser, no ocultos para ella y (los de tarjeta) con Tarjetas prendida.
+function importadoresVisibles(){
+  return STATE.importadores.filter(function(i){
+    if(!i.activo) return false;
+    if(PARSERS_IMPORTACION.indexOf(i.codigo)===-1){
+      if(!IMPORTADORES_SIN_PARSER_AVISADOS[i.codigo]){
+        IMPORTADORES_SIN_PARSER_AVISADOS[i.codigo] = true;
+        if(window.console) console.warn('Importador "'+i.codigo+'" sin parser en app.js: no se muestra.');
+      }
+      return false;
+    }
+    if(STATE.importadoresOcultos.indexOf(i.codigo)!==-1) return false;
+    return !esImportadorTarjeta(i.codigo) || funcionActiva('tarjetas');
+  });
+}
+
 function runParser(){
   var entidad = STATE.importEntidad;
   var raw = STATE.importRaw || '';
@@ -2068,6 +2097,28 @@ function renderConfigFamilia(){
   '</div>';
 }
 
+// Importadores de la familia elegida (solo superadmin, D7): tildado = la familia lo ve. Se guarda lo que
+// se oculta, así un importador nuevo aparece en todas.
+function renderImportadoresFamilia(){
+  var familia = STATE.familias.find(function(f){ return f.id===STATE.familiaSeleccionadaId; });
+  if(!familia) return '';
+  var lista = STATE.importadores.filter(function(i){ return i.activo && PARSERS_IMPORTACION.indexOf(i.codigo)!==-1; });
+  var msgHtml = STATE.importadoresMsg ? '<div class="msg '+(STATE.importadoresMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.importadoresMsg.text)+'</div>' : '';
+  var fila = function(i){
+    var visible = STATE.importadoresOcultos.indexOf(i.codigo)===-1;
+    return '<label style="display:flex;align-items:center;gap:8px;font-weight:normal;margin:4px 0">'+
+      '<input type="checkbox" style="width:auto" data-action="importador-alternar" data-id="'+esc(i.codigo)+'"'+(visible?' checked':'')+'> '+
+      esc(esImportadorTarjeta(i.codigo) ? 'Tarjeta de Crédito · '+i.nombre : i.nombre)+
+    '</label>';
+  };
+  return '<div class="card">'+
+    '<h2>Importadores de '+esc(familia.nombre)+'</h2>'+
+    '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Tildado = la familia lo ve en Importar. Los de tarjeta además necesitan la función Tarjetas prendida. Los importadores nuevos se agregan en <code>schema.sql</code> y aparecen tildados.</div>'+
+    msgHtml+
+    (lista.length ? lista.map(fila).join('') : '<div class="empty">No hay importadores cargados.</div>')+
+  '</div>';
+}
+
 // Pestaña Administración (solo superadmin): familias, miembros, backup global y restauración por familia.
 // Las altas se hacen por script (scripts/sql/alta_*.sql): acá solo se muestran.
 function renderAdministracion(){
@@ -2115,6 +2166,7 @@ function renderAdministracion(){
       : (STATE.adminMiembrosError ? '' : '<div class="empty">Todavía no hay miembros.</div>'))+
   '</div>'+
   renderConfigFamilia()+
+  renderImportadoresFamilia()+
   '<div class="card">'+
     '<h2>Descargar backup</h2>'+
     '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:12px">Genera un archivo con <strong>todas las familias</strong>: familias, miembros y sus datos (Centros, Categorías, Subcategorías, Movimientos, Vencimientos, Deudas, USDT, Facturas, Reglas y Configuración).</div>'+
@@ -2726,18 +2778,35 @@ function renderMovimientos(){
 
 // ===================== IMPORTAR =====================
 function renderImportar(){
-  if(STATE.importEntidad==='tarjeta' && !funcionActiva('tarjetas')) STATE.importEntidad = 'mp';
-  var e = STATE.importEntidad || 'mp';
+  var visibles = importadoresVisibles();
+  var deCuenta = visibles.filter(function(i){ return !esImportadorTarjeta(i.codigo); });
+  var deTarjeta = visibles.filter(function(i){ return esImportadorTarjeta(i.codigo); });
+  if(!visibles.length){
+    return '<div class="card"><h2>Importar movimientos</h2><div class="empty">No hay importadores habilitados para tu familia. Si necesitás uno, pedíselo al soporte.</div></div>';
+  }
+  // Opciones de "Entidad" en el orden de la tabla; los de tarjeta se juntan en "Tarjeta de Crédito", donde
+  // aparece el primero.
+  var opcionesEntidad = [];
+  visibles.forEach(function(i){
+    var opcion = esImportadorTarjeta(i.codigo) ? 'tarjeta' : i.codigo;
+    if(opcionesEntidad.indexOf(opcion)===-1) opcionesEntidad.push(opcion);
+  });
+  // Si lo elegido ya no está disponible (se ocultó o se apagó Tarjetas), pasar al primero que sí.
+  if(opcionesEntidad.indexOf(STATE.importEntidad)===-1) STATE.importEntidad = opcionesEntidad[0];
+  if(STATE.importEntidad==='tarjeta' && !deTarjeta.some(function(i){ return i.codigo==='tarjeta_'+STATE.importBanco; })){
+    STATE.importBanco = deTarjeta[0].codigo.slice('tarjeta_'.length);
+  }
+  var e = STATE.importEntidad;
   var msgHtml = STATE.importMsg ? '<div class="msg '+(STATE.importMsg.type==='ok'?'ok':'err')+'">'+esc(STATE.importMsg.text)+'</div>' : '';
 
   var subFieldsHtml = '';
   if(e === 'tarjeta'){
     subFieldsHtml = ''+
       '<div class="field"><label>Banco</label><select id="imp-banco">'+
-        '<option value="nacion" '+(STATE.importBanco==='nacion'?'selected':'')+'>Nación</option>'+
-        '<option value="santander" '+(STATE.importBanco==='santander'?'selected':'')+'>Santander</option>'+
-        '<option value="provincia" '+(STATE.importBanco==='provincia'?'selected':'')+'>Provincia</option>'+
-        '<option value="mercadopago" '+(STATE.importBanco==='mercadopago'?'selected':'')+'>Mercado Pago</option>'+
+        deTarjeta.map(function(i){
+          var banco = i.codigo.slice('tarjeta_'.length);
+          return '<option value="'+esc(banco)+'" '+(STATE.importBanco===banco?'selected':'')+'>'+esc(i.nombre)+'</option>';
+        }).join('')+
       '</select></div>'+
       '<div class="field"><label>Vencimiento</label><input type="date" id="imp-vencimiento" value="'+esc(STATE.importVencimiento||'')+'"></div>'+
       '<div class="field"><label>Marca de tarjeta (opcional)</label><input type="text" id="imp-tarjeta-marca" autocomplete="off" placeholder="Visa, Mastercard, Amex..." value="'+esc(STATE.importTarjetaMarca||'')+'" style="width:150px"></div>';
@@ -2751,12 +2820,10 @@ function renderImportar(){
     msgHtml+
     '<div class="fields-row">'+
       '<div class="field"><label>Entidad</label><select id="imp-entidad">'+
-        '<option value="mp" '+(e==='mp'?'selected':'')+'>Mercado Pago</option>'+
-        '<option value="santander" '+(e==='santander'?'selected':'')+'>Santander</option>'+
-        '<option value="nacion" '+(e==='nacion'?'selected':'')+'>Nación</option>'+
-        '<option value="provincia" '+(e==='provincia'?'selected':'')+'>Provincia</option>'+
-        (funcionActiva('tarjetas') ? '<option value="tarjeta" '+(e==='tarjeta'?'selected':'')+'>Tarjeta de Crédito</option>' : '')+
-        '<option value="excel" '+(e==='excel'?'selected':'')+'>Excel histórico (ya categorizado)</option>'+
+        opcionesEntidad.map(function(opcion){
+          var etiqueta = opcion==='tarjeta' ? 'Tarjeta de Crédito' : deCuenta.find(function(i){ return i.codigo===opcion; }).nombre;
+          return '<option value="'+esc(opcion)+'" '+(e===opcion?'selected':'')+'>'+esc(etiqueta)+'</option>';
+        }).join('')+
       '</select></div>'+
       subFieldsHtml+
     '</div>'+
@@ -4840,9 +4907,9 @@ var ACCIONES_LECTURA = ['mov-pagina-anterior', 'mov-pagina-siguiente', 'ir-a-ven
   'toggle-menu-movil', 'cerrar-menu-movil', 'toggle-menu-usuario', 'set-tema-color', 'toggle-tema', 'cerrar-sesion',
   // Administración (solo superadmin)
   'descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado',
-  'config-guardar', 'config-default'];
+  'config-guardar', 'config-default', 'importador-alternar'];
 var ACCIONES_SUPERADMIN = ['descargar-backup', 'restaurar-backup-preview', 'cancelar-restaurar', 'restaurar-familia', 'restaurar-familia-confirmado',
-  'config-guardar', 'config-default'];
+  'config-guardar', 'config-default', 'importador-alternar'];
 
 async function handleAction(action, id){
   if(STATE.soloLectura && ACCIONES_LECTURA.indexOf(action)===-1) return;
@@ -5179,6 +5246,25 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='cancelar-restaurar'){ STATE.backupArchivo = null; STATE.backupMsg = null; render(); return; }
+
+  // ---- IMPORTADORES DE LA FAMILIA (superadmin) ----
+  // Como la configuración, no pasa por dbInsert/dbDelete: el superadmin está en solo lectura para los datos, no para esto.
+  if(action==='importador-alternar'){
+    var familiaImp = STATE.familiaSeleccionadaId;
+    if(!familiaImp || !STATE.importadores.some(function(i){ return i.codigo===id; })){ render(); return; }
+    var estabaOculto = STATE.importadoresOcultos.indexOf(id)!==-1;
+    try{
+      var resImp = estabaOculto
+        ? await sb.from('familia_importadores_ocultos').delete().eq('familia_id', familiaImp).eq('importador_codigo', id)
+        : await sb.from('familia_importadores_ocultos').insert({ familia_id: familiaImp, importador_codigo: id });
+      if(resImp && resImp.error) throw resImp.error;
+      STATE.importadoresOcultos = estabaOculto
+        ? STATE.importadoresOcultos.filter(function(c){ return c!==id; })
+        : STATE.importadoresOcultos.concat([id]);
+      STATE.importadoresMsg = null;
+    }catch(e){ STATE.importadoresMsg = { type:'err', text:'No se pudo guardar: '+(e.message||e) }; }
+    render(); return;
+  }
 
   // ---- CONFIGURACIÓN DE LA FAMILIA (superadmin) ----
   if(action==='config-guardar' || action==='config-default'){
