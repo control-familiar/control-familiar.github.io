@@ -24,7 +24,7 @@ App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyecc
 
 - **Ingreso:** abrí la app, escribí email y contraseña y tocá **Iniciar sesión**. No hay registro público: los usuarios los da de alta el soporte.
 - **Menú de cuenta** (círculo con tus iniciales, arriba a la derecha): elegí el **color del tema** (verde, azul, naranja), **modo claro/oscuro** y **Cerrar sesión**. Las preferencias quedan guardadas en el navegador.
-- **Celular:** el menú lateral se abre con el botón de hamburguesa (☰). Al lado hay un acceso rápido a **Cargar efectivo**.
+- **Celular:** el menú lateral se abre con el botón de hamburguesa (☰). Para cargar efectivo, el botón flotante **+ Efectivo** abajo a la derecha.
 - **Botón “+ Movimiento”** (arriba del menú lateral): abre el alta de un movimiento desde cualquier pestaña.
 
 ## 2. Conceptos clave
@@ -85,7 +85,13 @@ Tocá **+ Movimiento**. Campos principales: Fecha, Centro de Costo, Tipo (ingres
 - **Tarjeta:** *Marca de tarjeta* y *Fecha de consumo* son opcionales.
 
 ### Cargar efectivo (rápido)
-El botón **Cargar efectivo** (💵; en el celular está en la barra superior) abre un formulario corto: fecha, CC, ingreso/egreso, monto, contraparte y detalle. Categoría y subcategoría pueden completarse después. Preselecciona el último CC que usaste para cargar efectivo en ese dispositivo.
+Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) abre una hoja de carga rápida.
+- El **Monto** va primero, con el teclado ya abierto. Se escribe como siempre: `1.500` o `1.500,50`.
+- **Egreso / Ingreso**, la **Fecha** (Hoy, Ayer u Otra…), el **Centro de Costo** y la **Categoría** se eligen con un toque. El centro que usaste la última vez en ese teléfono viene marcado; las categorías que más usás aparecen primero (*Otra…* muestra todas).
+- La **Contraparte** se autocompleta con las que ya cargaste y, si tiene una regla de categorización, completa sola la categoría.
+- Detalle y Subcategoría están en **Más datos**; también se pueden completar después desde Movimientos.
+- **Guardar** queda siempre abajo. **Guardar y cargar otro** deja la hoja abierta con la misma fecha, centro y tipo (útil con varios tickets).
+- Después de guardar aparece un aviso con **Deshacer** por unos segundos. La hoja se cierra con *Cancelar*, tocando afuera o deslizándola hacia abajo.
 
 ### Listado de Movimientos
 - **Filtros:** búsqueda por texto y filtros múltiples (tildás varias opciones) de Centro, Categoría, Subcategoría y Mes. *Solo incompletos* muestra los que no tienen categoría; *Solo tarjeta* los de tarjeta. **Limpiar filtros** los reinicia.
@@ -104,6 +110,8 @@ El botón **Cargar efectivo** (💵; en el celular está en la barra superior) a
 3. Pegá el texto del resumen en el cuadro y tocá **Previsualizar**.
 4. Revisá la tabla: podés corregir centro, categoría y subcategoría de cada fila. Las **reglas de categorización** completan las que coincidan, y los **posibles duplicados** (mismo centro, contraparte, monto y fecha que algo ya cargado) quedan marcados.
 5. Confirmá para guardar.
+
+*Mercado Pago:* copiá lo que ves en **Actividad** (también se acepta lo copiado de la pestaña Movimientos, el formato anterior). No se importan los pagos con tarjeta de crédito (entran con el resumen de la tarjeta), las compras devueltas junto con su devolución, lo rechazado o cancelado ni lo que está en dólares; la pantalla avisa cuántos quedaron afuera y por qué.
 
 *Excel histórico:* pegá las filas copiadas del Excel con columnas separadas por tab, en el orden que indica la propia pantalla (Periodo, Cuenta, Categoría, Subcategoría, CC, Fecha, Contraparte, Detalle, Ingreso, Egreso).
 

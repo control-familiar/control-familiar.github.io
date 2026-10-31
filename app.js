@@ -24,6 +24,9 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   configCatalogo:[], configMsg:null,
   miembrosFamilia:[], // usuarios de la familia (D5: titulares de los centros), [{userId, nombre}]
   importadores:[], importadoresOcultos:[], importadoresMsg:null, // D7
+  // Carga rápida de efectivo (pensada para el celular): "Más datos" desplegado, ver todas las categorías,
+  // fecha elegida a mano, foco pendiente en el Monto, y el aviso de abajo (con Deshacer) después de guardar.
+  efectivoMasAbierto:false, efectivoTodasCategorias:false, efectivoFechaOtra:false, efectivoFoco:false, aviso:null,
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -1078,6 +1081,133 @@ function procesarTexto(raw, anio){
   return parseLines(step2, anio);
 }
 
+// Mercado Pago, pestaña Actividad (el formato que reemplazó al de Movimientos): por movimiento viene
+// "nombre / hh:mm / nombre (a veces repetido pegado) / nombre / tipo / [medio de pago] / [estado] /
+// signo / $ o US$ / entero / [, / decimales]", bajo encabezados "30 de octubre" (u "Hoy"/"Ayer").
+// En Actividad también aparece lo que no sale de la cuenta; se omite y se cuenta por motivo:
+// lo pagado con tarjeta de crédito (entra con el resumen de la tarjeta), una compra "Devuelto" junto
+// con su "Devolución de dinero" (mismo comercio y monto: se anulan), lo rechazado/cancelado y lo en dólares.
+var RE_HORA_MP = /^\d{1,2}:\d{2}$/;
+function esActividadMP(lines){
+  for(var i=1; i<lines.length-1; i++){
+    if(RE_HORA_MP.test(lines[i]) && lines[i-1].length>0 && lines[i+1].indexOf(lines[i-1])===0) return true;
+  }
+  return false;
+}
+// Lee "signo / moneda / entero / [, / decimales]" (o todo junto en una línea) desde lines[j].
+function leerMontoActividadMP(lines, j){
+  var junto = (lines[j]||'').match(/^([+\-])\s*(US\$|\$)\s*([\d.]+(?:,\d+)?)$/i);
+  if(junto) return { signo: junto[1], moneda: junto[2].toUpperCase(), valor: parseMonto(junto[3]), fin: j+1 };
+  if(lines[j]!=='+' && lines[j]!=='-') return null;
+  var signo = lines[j]; j++;
+  var mon = (lines[j]||'').match(/^(US\$|\$)\s*([\d.]+)?$/i);
+  if(!mon) return null;
+  var moneda = mon[1].toUpperCase(); j++;
+  var entero = mon[2];
+  if(!entero){
+    if(!/^[\d.]+$/.test(lines[j]||'')) return null;
+    entero = lines[j]; j++;
+  }
+  var dec = '';
+  if(lines[j]===',' && /^\d+$/.test(lines[j+1]||'')){ dec = lines[j+1]; j += 2; }
+  return { signo: signo, moneda: moneda, valor: parseMonto(entero + (dec ? ','+dec : '')), fin: j };
+}
+function parseActividadMP(raw){
+  var lines = raw.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l.length>0; });
+  var reFecha = new RegExp('^(\\d{1,2})\\s+de\\s+('+MESES_RE+')(?:\\s+de\\s+(\\d{4}))?$','i');
+  var reEstado = /^(Aprobado|Devuelto|Rechazado|Cancelado|Pendiente|En proceso|Acreditado)$/i;
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  var fechaActual = null;
+  function fechaCorta(d){ return String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getFullYear()).slice(2); }
+
+  var movs = [];
+  var i = 0;
+  while(i < lines.length){
+    var l = lines[i];
+    if(/^hoy$/i.test(l)){ fechaActual = fechaCorta(hoy); i++; continue; }
+    if(/^ayer$/i.test(l)){ var ay = new Date(hoy); ay.setDate(ay.getDate()-1); fechaActual = fechaCorta(ay); i++; continue; }
+    var mf = l.match(reFecha);
+    if(mf){
+      var mes = parseInt(mesNum(mf[2]),10)-1;
+      // Sin año: el del día de hoy, salvo que la fecha quede en el futuro (diciembre pegado en enero).
+      var f = new Date(mf[3] ? parseInt(mf[3],10) : hoy.getFullYear(), mes, parseInt(mf[1],10));
+      if(!mf[3] && f > hoy) f.setFullYear(f.getFullYear()-1);
+      fechaActual = fechaCorta(f);
+      i++; continue;
+    }
+    if(!(i+1 < lines.length && RE_HORA_MP.test(lines[i+1]))){ i++; continue; }
+
+    var proveedor = l;
+    var j = i+2;
+    while(j < lines.length && (lines[j]===proveedor || lines[j]===proveedor+proveedor)) j++;
+    var desc = [];
+    var monto = null;
+    while(j < lines.length && desc.length <= 4){
+      monto = leerMontoActividadMP(lines, j);
+      if(monto) break;
+      if(RE_HORA_MP.test(lines[j]) || reFecha.test(lines[j])) break;
+      desc.push(lines[j]); j++;
+    }
+    if(!monto || monto.valor===null || isNaN(monto.valor)){ i++; continue; }
+
+    var estado = '';
+    var resto = [];
+    desc.forEach(function(d){ if(!estado && reEstado.test(d)) estado = d; else resto.push(d); });
+    movs.push({
+      fecha: fechaActual||'',
+      proveedor: proveedor,
+      tipo: resto[0]||'',
+      medio: resto[1]||'',
+      estado: estado,
+      moneda: monto.moneda,
+      monto: monto.signo==='-' ? -monto.valor : monto.valor
+    });
+    i = monto.fin;
+  }
+
+  var omit = { devolucion: 0, tarjeta: 0, rechazado: 0, dolares: 0 };
+  // Cada compra "Devuelto" se lleva una "Devolución" del mismo comercio y monto (la que no tenga par, entra).
+  movs.forEach(function(m){
+    if(!/^devuelto$/i.test(m.estado)) return;
+    m.omitir = 'devolucion';
+    var par = movs.filter(function(o){
+      return !o.omitir && /^devoluci/i.test(o.tipo) && o.proveedor===m.proveedor && Math.abs(o.monto)===Math.abs(m.monto);
+    })[0];
+    if(par) par.omitir = 'devolucion';
+  });
+  var rows = [];
+  movs.forEach(function(m){
+    var motivo = m.omitir ||
+      (/cr[ée]dito/i.test(m.medio) ? 'tarjeta' : null) ||
+      (/^(rechazado|cancelado)$/i.test(m.estado) ? 'rechazado' : null) ||
+      (m.moneda!=='$' ? 'dolares' : null);
+    if(motivo){ omit[motivo]++; return; }
+    rows.push({
+      fecha: m.fecha,
+      proveedor: m.proveedor,
+      tipo: m.tipo,
+      monto: m.monto,
+      ingreso: m.monto>0 ? formatMonto(m.monto) : '',
+      egreso: m.monto<0 ? formatMonto(m.monto) : ''
+    });
+  });
+
+  var partes = [];
+  if(omit.tarjeta) partes.push(omit.tarjeta+' con tarjeta de crédito (entran con el resumen de la tarjeta)');
+  if(omit.devolucion) partes.push(omit.devolucion+' entre compras devueltas y sus devoluciones');
+  if(omit.rechazado) partes.push(omit.rechazado+' rechazado(s) o cancelado(s)');
+  if(omit.dolares) partes.push(omit.dolares+' en dólares (cargalos manualmente si corresponde)');
+  var total = omit.tarjeta + omit.devolucion + omit.rechazado + omit.dolares;
+  return { rows: rows, omitidas: total, omitidasTexto: total ? 'No se importaron '+total+' movimiento(s): '+partes.join('; ')+'.' : '' };
+}
+
+// Mercado Pago: acepta lo copiado de Actividad (formato actual) o de Movimientos (el de antes).
+function parseMercadoPago(raw){
+  var lines = raw.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l.length>0; });
+  if(esActividadMP(lines)) return parseActividadMP(raw);
+  return { rows: procesarTexto(raw, anioActualCorto()), omitidas: 0, omitidasTexto: '' };
+}
+
 // Resumen de tarjeta (Nación, Santander): mismo formato de línea entre los dos bancos una vez que
 // se pega el texto tal cual sale del resumen (no de la web de cada banco) —
 // "dd/mm/aa detalle...  [C.NN/MM]  comprobante  monto". Se descartan "SU PAGO EN PESOS" (el pago
@@ -1625,7 +1755,10 @@ function runParser(){
   var entidad = STATE.importEntidad;
   var raw = STATE.importRaw || '';
   if(!raw.trim()) return { rows: [], error: 'Pegá el texto del resumen primero.' };
-  if(entidad === 'mp') return { rows: procesarTexto(raw, anioActualCorto()), error: null };
+  if(entidad === 'mp'){
+    var resMpCuenta = parseMercadoPago(raw);
+    return { rows: resMpCuenta.rows, error: null, omitidas: resMpCuenta.omitidas, omitidasTexto: resMpCuenta.omitidasTexto };
+  }
   if(entidad === 'santander') return { rows: parseSantander(raw), error: null };
   if(entidad === 'nacion') return { rows: parseNacion(raw), error: null };
   if(entidad === 'provincia') return { rows: parseProvincia(raw), error: null };
@@ -1739,7 +1872,6 @@ function renderInterno(){
       '<h1>Control</h1>'+
     '</div>'+
     '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">'+
-      '<button class="mobile-add-btn" data-action="abrir-efectivo" title="Cargar efectivo" aria-label="Cargar efectivo"><i class="bi bi-cash-coin"></i></button>'+
       renderSelectorFamilia('sel-familia-movil')+
       renderMenuUsuario()+
     '</div>'+
@@ -1822,47 +1954,7 @@ function renderInterno(){
     '</div></div>';
   }
 
-  if(STATE.efectivoAbierto){
-    var centroDefaultId = centroEfectivoRecordado();
-    // Draft: conserva lo tipeado (Fecha/Centro/Tipo/Monto/Proveedor/Detalle/Subcategoría) entre
-    // renders disparados por el propio modal (p. ej. al elegir Categoría, ver el listener de
-    // ef-categoria más abajo) — si no, cada re-render los recrea vacíos porque no tienen otro estado.
-    var efd = STATE.efectivoDraft || {};
-    MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="efectivo"><div class="modal-card">'+
-      '<h2><i class="bi bi-cash-coin"></i> Cargar efectivo</h2>'+
-      (STATE.efectivoMsg ? '<div class="msg err">'+esc(STATE.efectivoMsg)+'</div>' : '')+
-      '<div class="fields-row">'+
-        '<div class="field"><label>Fecha</label><input type="date" id="ef-fecha" value="'+esc(efd.fecha||fechaHoyISO())+'"></div>'+
-        '<div class="field"><label>Centro de Costo</label><select id="ef-centro"><option value="">Elegir...</option>'+
-          centrosOrdenados().map(function(c){ return '<option value="'+c.id+'" '+((efd.centroId||centroDefaultId)===c.id?'selected':'')+'>'+esc(c.codigo)+' · '+esc(c.nombre)+'</option>'; }).join('')+
-        '</select></div>'+
-        '<div class="field"><label>Tipo</label><select id="ef-tipo">'+
-          '<option value="egreso" '+((efd.tipo||'egreso')==='egreso'?'selected':'')+'>Egreso</option>'+
-          '<option value="ingreso" '+(efd.tipo==='ingreso'?'selected':'')+'>Ingreso</option>'+
-        '</select></div>'+
-      '</div>'+
-      '<div class="fields-row" style="margin-top:10px">'+
-        '<div class="field" style="flex:1 1 100%"><label>Monto</label><input type="number" step="0.01" id="ef-monto" placeholder="0.00" value="'+esc(efd.monto||'')+'" style="font-size:18px"></div>'+
-      '</div>'+
-      '<div class="fields-row" style="margin-top:10px">'+
-        '<div class="field"><label>Contraparte (opcional)</label><input type="text" id="ef-proveedor" placeholder="Ej: Kiosco" value="'+esc(efd.proveedor||'')+'"></div>'+
-        '<div class="field"><label>Detalle (opcional)</label><input type="text" id="ef-detalle" value="'+esc(efd.detalle||'')+'"></div>'+
-      '</div>'+
-      '<div class="fields-row" style="margin-top:10px">'+
-        '<div class="field"><label>Categoría (opcional)</label><select id="ef-categoria"><option value="">Elegir...</option>'+
-          categoriasOrdenadas().map(function(c){ return '<option value="'+c.id+'" '+(STATE.efectivoCategoriaId===c.id?'selected':'')+'>'+esc(c.nombre)+'</option>'; }).join('')+
-        '</select></div>'+
-        '<div class="field"><label>Subcategoría (opcional)</label><select id="ef-subcategoria"><option value="">Elegir...</option>'+
-          subcategoriasOrdenadas(STATE.subcategorias.filter(function(s){return s.categoriaId===STATE.efectivoCategoriaId;})).map(function(s){ return '<option value="'+s.id+'" '+(efd.subcategoriaId===s.id?'selected':'')+'>'+esc(s.nombre)+'</option>'; }).join('')+
-        '</select></div>'+
-      '</div>'+
-      '<div style="font-size:11px;color:var(--ink-soft);margin-top:10px">Podés completar Categoría y Subcategoría ahora, o dejarlas para después desde Movimientos.</div>'+
-      '<div class="fields-row" style="margin-top:14px">'+
-        '<button data-action="guardar-efectivo">Guardar</button>'+
-        '<button class="secondary" data-action="cerrar-efectivo">Cancelar</button>'+
-      '</div>'+
-    '</div></div>';
-  }
+  if(STATE.efectivoAbierto) MODAL_HTML = renderModalEfectivo();
 
   if(STATE.usdtVentaMovId){
     var mUvm = STATE.movimientos.find(function(x){ return x.id===STATE.usdtVentaMovId; });
@@ -1886,7 +1978,12 @@ function renderInterno(){
     }
   }
 
-  var html = mobileTopbarHtml + '<div class="layout">'+sidebarHtml+'<div class="main-content">'+contentHtml+'</div></div>' + MODAL_HTML;
+  // En el celular, la carga de efectivo es un botón flotante abajo a la derecha, donde llega el pulgar.
+  var fabHtml = STATE.efectivoAbierto ? '' : '<button type="button" class="fab-efectivo" data-action="abrir-efectivo" aria-label="Cargar efectivo"><i class="bi bi-plus-lg"></i> Efectivo</button>';
+  var avisoHtml = STATE.aviso ? '<div class="aviso-flotante" role="status"><span>'+esc(STATE.aviso.texto)+'</span>'+
+    (STATE.aviso.deshacerId ? '<button type="button" class="link" data-action="deshacer-efectivo" data-id="'+esc(STATE.aviso.deshacerId)+'">Deshacer</button>' : '')+
+    '<button type="button" class="link aviso-cerrar" data-action="cerrar-aviso" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button></div>' : '';
+  var html = mobileTopbarHtml + '<div class="layout">'+sidebarHtml+'<div class="main-content">'+contentHtml+'</div></div>' + fabHtml + avisoHtml + MODAL_HTML;
 
   app.innerHTML = html;
   bindEvents();
@@ -4811,6 +4908,48 @@ function bindEvents(){
   });
 
 
+  // Efectivo: al abrir (o después de "Guardar y cargar otro"), foco en el Monto con el teclado abierto.
+  var efMontoInput = document.getElementById('ef-monto');
+  if(efMontoInput && STATE.efectivoFoco){
+    STATE.efectivoFoco = false;
+    try{ efMontoInput.focus(); }catch(e){}
+  }
+  // Efectivo: si la Contraparte tiene una regla de categorización y todavía no se eligió categoría, se completa.
+  var efProveedorInput = document.getElementById('ef-proveedor');
+  if(efProveedorInput){
+    efProveedorInput.addEventListener('change', function(){
+      if(STATE.efectivoCategoriaId) return;
+      var sugerida = aplicarReglaAFila(efProveedorInput.value);
+      if(!sugerida.categoriaId) return;
+      var draft = getEfectivoFormValues();
+      draft.subcategoriaId = sugerida.subcategoriaId || '';
+      STATE.efectivoDraft = draft;
+      STATE.efectivoCategoriaId = sugerida.categoriaId;
+      render();
+    });
+  }
+  // Efectivo (celular): deslizar la hoja hacia abajo desde la manija o el título la cierra.
+  var efCard = document.getElementById('ef-card');
+  if(efCard){
+    var yInicio = null;
+    efCard.addEventListener('touchstart', function(ev){
+      var t = ev.target;
+      yInicio = (t.closest && (t.closest('.ef-grabber') || t.closest('.ef-titulo'))) ? ev.touches[0].clientY : null;
+    }, {passive:true});
+    efCard.addEventListener('touchmove', function(ev){
+      if(yInicio===null) return;
+      var dy = Math.max(0, ev.touches[0].clientY - yInicio);
+      efCard.style.transform = 'translateY('+dy+'px)';
+    }, {passive:true});
+    efCard.addEventListener('touchend', function(ev){
+      if(yInicio===null) return;
+      var dy = (ev.changedTouches[0] ? ev.changedTouches[0].clientY : yInicio) - yInicio;
+      yInicio = null;
+      if(dy > 90) handleAction('cerrar-efectivo');
+      else efCard.style.transform = '';
+    });
+  }
+
   // Refrescar subcategorías disponibles al cambiar la categoría en el modal de Efectivo
   var efCategoriaSel = document.getElementById('ef-categoria');
   if(efCategoriaSel){
@@ -5049,6 +5188,132 @@ function aplicarSoloLectura(){
   app.querySelectorAll('#tabla-movimientos [data-field], #tabla-movimientos .chk-select-mov, #chk-select-all-mov').forEach(function(el){
     el.disabled = true;
   });
+}
+
+// ===================== CARGA RÁPIDA DE EFECTIVO =====================
+// Pensada para cargar desde el celular en pocos toques: primero el Monto (con el teclado ya abierto), Egreso/
+// Ingreso, Fecha (Hoy/Ayer/Otra), Centro y Categoría como botones, Contraparte con autocompletado (y su regla de
+// categorización), y lo opcional plegado en "Más datos". El botón Guardar queda fijo abajo.
+// Monto escrito como en Argentina: "1.500,50" (punto de miles, coma decimal); también acepta "1500.50".
+function parseMontoAr(texto){
+  var t = String(texto==null?'':texto).replace(/[\s$]/g, '');
+  if(!t) return 0;
+  if(t.indexOf(',')!==-1) t = t.replace(/\./g, '').replace(',', '.');
+  else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');  // "1.500" o "1.500.000": puntos de miles
+  var n = parseFloat(t);
+  return isNaN(n) ? 0 : Math.abs(n);
+}
+function fechaAyerISO(){
+  var d = new Date(); d.setDate(d.getDate()-1);
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+}
+// Las categorías más usadas con ese tipo de movimiento (egreso o ingreso): las primeras que se ofrecen.
+function categoriasFrecuentes(tipo, cantidad){
+  var cuenta = {};
+  STATE.movimientos.forEach(function(m){
+    if(!m.categoriaId) return;
+    if(tipo==='ingreso' ? !(Number(m.ingreso)>0) : !(Number(m.egreso)>0)) return;
+    cuenta[m.categoriaId] = (cuenta[m.categoriaId]||0) + 1;
+  });
+  var ids = STATE.categorias.map(function(c){ return c.id; }).filter(function(id){ return !esCategoriaFueraDeReportes(id); });
+  ids.sort(function(a, b){ return (cuenta[b]||0) - (cuenta[a]||0) || nombreCategoria(a).localeCompare(nombreCategoria(b), 'es', {sensitivity:'base'}); });
+  return ids.slice(0, cantidad);
+}
+// Contrapartes ya cargadas, de la más reciente a la más vieja, para autocompletar.
+function contrapartesRecientes(cantidad){
+  var vistas = {}, lista = [];
+  STATE.movimientos.slice().sort(function(a, b){ return (b.fecha||'').localeCompare(a.fecha||''); }).forEach(function(m){
+    var p = (m.proveedor||'').trim();
+    if(!p || vistas[p.toLowerCase()]) return;
+    vistas[p.toLowerCase()] = true; lista.push(p);
+  });
+  return lista.slice(0, cantidad);
+}
+function chipEfectivo(accion, id, activo, contenido, extraStyle){
+  return '<button type="button" class="ef-chip'+(activo?' activo':'')+'" data-action="'+accion+'" data-id="'+esc(id)+'" aria-pressed="'+activo+'"'+(extraStyle?' style="'+extraStyle+'"':'')+'>'+contenido+'</button>';
+}
+function renderModalEfectivo(){
+  var efd = STATE.efectivoDraft || {};
+  var hoy = fechaHoyISO(), ayer = fechaAyerISO();
+  var fecha = efd.fecha || hoy;
+  var tipo = efd.tipo || 'egreso';
+  var centroId = efd.centroId!==undefined ? efd.centroId : centroEfectivoRecordado();
+  var categoriaId = STATE.efectivoCategoriaId || '';
+  var fechaOtra = STATE.efectivoFechaOtra || (fecha!==hoy && fecha!==ayer);
+
+  var centros = centrosOrdenados();
+  var recordado = centroEfectivoRecordado();
+  centros.sort(function(a, b){ return (b.id===recordado) - (a.id===recordado); }); // el último usado, primero
+  var centrosHtml = centros.length
+    ? centros.map(function(c){
+        var color = colorCentro(c.id);
+        return chipEfectivo('ef-centro', c.id, c.id===centroId, esc(c.codigo)+' <span class="ef-chip-sub">'+esc(c.nombre)+'</span>',
+          color ? '--chip-color:'+color : '');
+      }).join('')
+    : '<div class="empty" style="padding:4px 0">Todavía no hay centros de costo: se crean en ABM.</div>';
+
+  var frecuentes = categoriasFrecuentes(tipo, 6);
+  if(categoriaId && frecuentes.indexOf(categoriaId)===-1) frecuentes.unshift(categoriaId);
+  var categoriasHtml = frecuentes.map(function(id){
+      var color = colorCategoria(id);
+      return chipEfectivo('ef-categoria', id, id===categoriaId, esc(nombreCategoria(id)), color ? '--chip-color:'+color : '');
+    }).join('')+
+    (STATE.categorias.length > frecuentes.length && !STATE.efectivoTodasCategorias ? chipEfectivo('ef-categoria', '__todas__', false, 'Otra…') : '');
+  var categoriaCampo = STATE.efectivoTodasCategorias
+    ? '<select id="ef-categoria" style="margin-top:8px"><option value="">Sin categoría</option>'+
+        categoriasOrdenadas().map(function(c){ return '<option value="'+c.id+'" '+(categoriaId===c.id?'selected':'')+'>'+esc(c.nombre)+'</option>'; }).join('')+
+      '</select>'
+    : '<input type="hidden" id="ef-categoria" value="'+esc(categoriaId)+'">';
+
+  var subcategorias = subcategoriasOrdenadas(STATE.subcategorias.filter(function(x){ return x.categoriaId===categoriaId; }));
+  var masHtml = STATE.efectivoMasAbierto
+    ? '<div class="field"><label for="ef-detalle">Detalle</label><input type="text" id="ef-detalle" value="'+esc(efd.detalle||'')+'"></div>'+
+      '<div class="field"><label for="ef-subcategoria">Subcategoría</label><select id="ef-subcategoria"><option value="">'+(categoriaId?'Sin subcategoría':'Elegí antes una categoría')+'</option>'+
+        subcategorias.map(function(x){ return '<option value="'+x.id+'" '+(efd.subcategoriaId===x.id?'selected':'')+'>'+esc(x.nombre)+'</option>'; }).join('')+
+      '</select></div>'
+    : '<input type="hidden" id="ef-detalle" value="'+esc(efd.detalle||'')+'"><input type="hidden" id="ef-subcategoria" value="'+esc(efd.subcategoriaId||'')+'">'+
+      '<button type="button" class="link ef-mas" data-action="ef-mas"><i class="bi bi-plus-circle"></i> Más datos (detalle, subcategoría)</button>';
+
+  return '<div class="modal-overlay ef-overlay" data-modal-backdrop="efectivo"><div class="modal-card ef-card" id="ef-card">'+
+    '<div class="ef-grabber" aria-hidden="true"></div>'+
+    '<h2 class="ef-titulo"><i class="bi bi-cash-coin"></i> Cargar efectivo</h2>'+
+    (STATE.efectivoMsg ? '<div class="msg err">'+esc(STATE.efectivoMsg)+'</div>' : '')+
+    '<div class="ef-cuerpo">'+
+      '<div class="field"><label for="ef-monto">Monto</label>'+
+        '<div class="ef-monto '+tipo+'"><span>$</span><input type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" id="ef-monto" placeholder="0" value="'+esc(efd.monto||'')+'"></div></div>'+
+      '<div class="ef-segmentado" role="group" aria-label="Tipo">'+
+        '<button type="button" class="'+(tipo==='egreso'?'activo egreso':'')+'" data-action="ef-tipo" data-id="egreso" aria-pressed="'+(tipo==='egreso')+'"><i class="bi bi-arrow-down"></i> Egreso</button>'+
+        '<button type="button" class="'+(tipo==='ingreso'?'activo ingreso':'')+'" data-action="ef-tipo" data-id="ingreso" aria-pressed="'+(tipo==='ingreso')+'"><i class="bi bi-arrow-up"></i> Ingreso</button>'+
+      '</div>'+
+      '<input type="hidden" id="ef-tipo" value="'+tipo+'">'+
+      '<div class="field"><label>Fecha</label><div class="ef-chips">'+
+        chipEfectivo('ef-fecha', 'hoy', !fechaOtra && fecha===hoy, 'Hoy')+
+        chipEfectivo('ef-fecha', 'ayer', !fechaOtra && fecha===ayer, 'Ayer')+
+        chipEfectivo('ef-fecha', 'otra', fechaOtra, fechaOtra && fecha ? fechaISOaDDMMAAAA(fecha) : 'Otra…')+
+      '</div>'+
+      (fechaOtra ? '<input type="date" id="ef-fecha" class="ef-fecha-otra" value="'+esc(fecha)+'">' : '<input type="hidden" id="ef-fecha" value="'+esc(fecha)+'">')+
+      '</div>'+
+      '<div class="field"><label>Centro de Costo</label><div class="ef-chips">'+centrosHtml+'</div>'+
+        '<input type="hidden" id="ef-centro" value="'+esc(centroId||'')+'"></div>'+
+      '<div class="field"><label for="ef-proveedor">Contraparte (opcional)</label>'+
+        '<input type="text" id="ef-proveedor" list="ef-proveedores" autocomplete="off" placeholder="Ej: Kiosco" value="'+esc(efd.proveedor||'')+'">'+
+        '<datalist id="ef-proveedores">'+contrapartesRecientes(60).map(function(p){ return '<option value="'+esc(p)+'">'; }).join('')+'</datalist></div>'+
+      '<div class="field"><label>Categoría (opcional)</label><div class="ef-chips">'+categoriasHtml+'</div>'+categoriaCampo+'</div>'+
+      masHtml+
+    '</div>'+
+    '<div class="ef-acciones">'+
+      '<button type="button" data-action="guardar-efectivo">Guardar</button>'+
+      '<button type="button" class="secondary" data-action="guardar-efectivo-otro">Guardar y cargar otro</button>'+
+      '<button type="button" class="link" data-action="cerrar-efectivo">Cancelar</button>'+
+    '</div>'+
+  '</div></div>';
+}
+// Muestra el aviso de abajo por unos segundos (solo uno a la vez).
+var AVISO_TIMER = null;
+function mostrarAviso(texto, deshacerId){
+  STATE.aviso = { texto: texto, deshacerId: deshacerId || null };
+  clearTimeout(AVISO_TIMER);
+  AVISO_TIMER = setTimeout(function(){ STATE.aviso = null; render(); }, 7000);
 }
 
 function getEfectivoFormValues(){
@@ -5573,6 +5838,8 @@ async function handleAction(action, id){
     STATE.efectivoAbierto = true;
     STATE.efectivoCategoriaId = '';
     STATE.efectivoDraft = null;
+    STATE.efectivoMasAbierto = false; STATE.efectivoTodasCategorias = false; STATE.efectivoFechaOtra = false;
+    STATE.efectivoFoco = true;
     STATE.menuMovilAbierto = false;
     render(); return;
   }
@@ -5583,11 +5850,44 @@ async function handleAction(action, id){
     STATE.efectivoDraft = null;
     render(); return;
   }
-  if(action==='guardar-efectivo'){
+  // Botones del formulario de efectivo: guardan lo tipeado (draft) antes de redibujar.
+  if(action==='ef-tipo' || action==='ef-fecha' || action==='ef-centro' || action==='ef-categoria' || action==='ef-mas'){
+    var draftEf = getEfectivoFormValues();
+    if(action==='ef-tipo') draftEf.tipo = id==='ingreso' ? 'ingreso' : 'egreso';
+    if(action==='ef-fecha'){
+      STATE.efectivoFechaOtra = id==='otra';
+      if(id==='hoy') draftEf.fecha = fechaHoyISO();
+      if(id==='ayer') draftEf.fecha = fechaAyerISO();
+    }
+    if(action==='ef-centro') draftEf.centroId = draftEf.centroId===id ? '' : id;
+    if(action==='ef-categoria'){
+      if(id==='__todas__') STATE.efectivoTodasCategorias = true;
+      else {
+        STATE.efectivoCategoriaId = STATE.efectivoCategoriaId===id ? '' : id;
+        draftEf.subcategoriaId = '';
+      }
+    }
+    if(action==='ef-mas') STATE.efectivoMasAbierto = true;
+    STATE.efectivoDraft = draftEf;
+    render(); return;
+  }
+  if(action==='cerrar-aviso'){ clearTimeout(AVISO_TIMER); STATE.aviso = null; render(); return; }
+  if(action==='deshacer-efectivo'){
+    clearTimeout(AVISO_TIMER); STATE.aviso = null;
+    try{
+      await dbDelete('movimientos', id);
+      STATE.movimientos = STATE.movimientos.filter(function(m){ return m.id!==id; });
+      STATE.saldosDirty = true;
+      mostrarAviso('Se deshizo la carga.');
+    }catch(e){ STATE.dbError = 'No se pudo deshacer: '+(e.message||e); }
+    render(); return;
+  }
+  if(action==='guardar-efectivo' || action==='guardar-efectivo-otro'){
+    var otroEf = action==='guardar-efectivo-otro';
     var efFecha = document.getElementById('ef-fecha').value;
     var efCentro = document.getElementById('ef-centro').value;
     var efTipo = document.getElementById('ef-tipo').value;
-    var efMonto = Math.abs(parseFloat(document.getElementById('ef-monto').value))||0;
+    var efMonto = parseMontoAr(document.getElementById('ef-monto').value);
     var efProveedor = document.getElementById('ef-proveedor').value.trim();
     var efDetalle = document.getElementById('ef-detalle').value.trim();
     var efCategoria = document.getElementById('ef-categoria').value;
@@ -5612,9 +5912,18 @@ async function handleAction(action, id){
       STATE.movimientos.push(nuevoEf);
       try{ if(efCentro) localStorage.setItem('controlCentroEfectivo', efCentro); }catch(e){}
       STATE.saldosDirty = true;
-      STATE.efectivoAbierto = false;
       STATE.efectivoCategoriaId = '';
-      STATE.efectivoDraft = null;
+      STATE.efectivoMasAbierto = false; STATE.efectivoTodasCategorias = false;
+      if(otroEf){
+        // Sigue abierto para el próximo: misma fecha, centro y tipo; lo demás en blanco.
+        STATE.efectivoDraft = { fecha: efFecha, centroId: efCentro, tipo: efTipo, monto:'', proveedor:'', detalle:'', subcategoriaId:'' };
+        STATE.efectivoFoco = true;
+      } else {
+        STATE.efectivoAbierto = false;
+        STATE.efectivoDraft = null;
+        STATE.efectivoFechaOtra = false;
+      }
+      mostrarAviso((efTipo==='ingreso' ? 'Ingreso' : 'Egreso')+' de $'+fmtMonto(efMonto)+' cargado.', nuevoEf.id);
     }catch(e){
       // Falló el guardado (p. ej. sin conexión): conservar lo tipeado también acá.
       STATE.efectivoDraft = getEfectivoFormValues();
@@ -6049,7 +6358,7 @@ async function handleAction(action, id){
     var res = runParser();
     if(res.error){ STATE.importMsg = {type:'err', text: res.error}; STATE.importPreview = null; render(); return; }
     if(!res.rows.length){
-      var textoVacio = res.omitidas ? 'Todas las filas encontradas ('+res.omitidas+') están en dólares; esta entidad solo importa montos en pesos.' : 'No se encontró ningún movimiento en el texto pegado.';
+      var textoVacio = res.omitidasTexto ? res.omitidasTexto : res.omitidas ? 'Todas las filas encontradas ('+res.omitidas+') están en dólares; esta entidad solo importa montos en pesos.' : 'No se encontró ningún movimiento en el texto pegado.';
       STATE.importMsg = {type:'err', text: textoVacio}; STATE.importPreview = null; render(); return;
     }
     var tarjetaMarcaLote = (STATE.importEntidad==='tarjeta') ? (STATE.importTarjetaMarca||'').trim() : '';
@@ -6060,7 +6369,7 @@ async function handleAction(action, id){
     });
     STATE.importMsg = defaultCentroId ? null : {type:'err', text:'No encontré un Centro de Costo con el código esperado para esta entidad. Asigná uno por fila abajo, o cargalo primero en ABM → Centros de Costo.'};
     if(res.omitidas){
-      var omitTexto = res.omitidas+' fila(s) en dólares no se importaron (esta entidad solo carga montos en pesos); cargalas manualmente si corresponde.';
+      var omitTexto = res.omitidasTexto || res.omitidas+' fila(s) en dólares no se importaron (esta entidad solo carga montos en pesos); cargalas manualmente si corresponde.';
       STATE.importMsg = STATE.importMsg ? {type: STATE.importMsg.type, text: STATE.importMsg.text+' '+omitTexto} : {type:'ok', text: omitTexto};
     }
     render(); return;
