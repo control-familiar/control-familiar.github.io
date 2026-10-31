@@ -1,6 +1,7 @@
-# control-economico-familiar
+# control-familiar
 
-Fork multi-familia de francosantarelli/control-economico (remote `upstream`), llevado por Ana.
+Fork multi-familia de francosantarelli/control-economico (remote `upstream`), llevado por Ana. Repo
+`control-familiar/control-familiar.github.io` (organización de GitHub); la app se publica en https://control-familiar.github.io/.
 
 - **Antes de cualquier cambio de diseño, leer [docs/MULTI-FAMILIA.md](docs/MULTI-FAMILIA.md)**: todas las
   decisiones tomadas (D1–D11, N2–N5, S1–S5, F1–F5), el diseño de la base y en qué fase está el trabajo.

@@ -25,8 +25,8 @@ decisión cambia, se actualiza acá.
 
 | | |
 |---|---|
-| Repo | `anitacasadei/control-economico-familiar` (fork, público) |
-| Deploy | GitHub Pages vía Actions (`.github/workflows/test.yml`): tests → publica solo si pasan. URL: https://anitacasadei.github.io/control-economico-familiar/ |
+| Repo | `control-familiar/control-familiar.github.io` (fork, público), en la organización de GitHub `control-familiar` de Ana. Antes era `anitacasadei/control-economico-familiar`: GitHub redirige la dirección vieja del repo, no la de la app. |
+| Deploy | GitHub Pages vía Actions (`.github/workflows/test.yml`): tests → publica solo si pasan. URL: **https://control-familiar.github.io/** (antes `anitacasadei.github.io/control-economico-familiar/`, que ya no anda). Supabase Auth → Site URL y Redirect URLs apuntan a la URL nueva. |
 | Base | Proyecto Supabase `control-economico-familiar` (`ssfbamnomyjkuixqzxok`), en la cuenta de Ana. Signup público deshabilitado. |
 | Backup diario | Workflow `backup-diario` **desactivado** hasta configurar sus secrets (service role key del proyecto nuevo + carpeta de Drive propia). Con la familia real, Ana decidió activarlo más adelante; mientras tanto, backup manual desde Administración → Descargar backup. |
 | Vercel | Se evaluó; por ahora se queda en Pages. Si se pasa: deploy desde Actions con la CLI de Vercel después de los tests (no la integración automática, que publica aunque fallen), publicando solo los archivos de la app. Plan Hobby = uso no comercial. |
