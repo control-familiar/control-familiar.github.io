@@ -15,7 +15,6 @@ export function seedBase(win) {
   ];
   win.STATE.movimientos = [];
   win.STATE.vencimientos = [];
-  win.STATE.gimnasioVisitas = [];
   win.STATE.ready = true;
   win.STATE.usuarioEmail = 'fhsantarelli@gmail.com';
   return win.STATE;

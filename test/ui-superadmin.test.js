@@ -125,7 +125,7 @@ describe('Superadmin: solo lectura', () => {
   });
 
   it('en cada pestaña solo quedan acciones de lectura', () => {
-    for (const tab of ['resumen', 'movimientos', 'vencimientos', 'saldos', 'flujo', 'usdt', 'dolares', 'gimnasio', 'abm', 'admin']) {
+    for (const tab of ['resumen', 'movimientos', 'vencimientos', 'saldos', 'flujo', 'usdt', 'dolares', 'abm', 'admin']) {
       win.STATE.activeTab = tab;
       win.render();
       for (const accion of accionesVisibles(win)) expect([tab, win.ACCIONES_LECTURA.includes(accion)]).toEqual([tab, true]);

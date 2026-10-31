@@ -87,13 +87,6 @@ describe('vencimiento', () => {
   });
 });
 
-describe('gimnasio', () => {
-  it('fromDbGimnasioVisita mapea la fila tal cual', () => {
-    expect(win.fromDbGimnasioVisita({ id: 'g1', persona: 'franco', fecha: '2026-08-09' }))
-      .toEqual({ id: 'g1', persona: 'franco', fecha: '2026-08-09' });
-  });
-});
-
 describe('factura', () => {
   it('fromDbFactura mapea una factura emitida con todos los campos', () => {
     const row = {

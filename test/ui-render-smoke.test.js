@@ -5,7 +5,7 @@ import { seedBase } from './helpers/fixtures.js';
 // Cubre lo más básico pero más fácil de romper sin darse cuenta: que cada pestaña
 // renderice sin tirar una excepción, tanto con datos como completamente vacía.
 describe('render de cada pestaña', () => {
-  const tabs = ['movimientos', 'importar', 'vencimientos', 'saldos', 'resumen', 'flujo', 'dolares', 'gimnasio', 'abm'];
+  const tabs = ['movimientos', 'importar', 'vencimientos', 'saldos', 'resumen', 'flujo', 'dolares', 'abm'];
 
   it('no explota con datos cargados, para ninguna pestaña', () => {
     const win = loadApp();

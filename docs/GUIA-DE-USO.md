@@ -15,9 +15,8 @@ App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyecc
 10. [Flujo de Caja y deudas](#10-flujo-de-caja-y-deudas)
 11. [USDT](#11-usdt)
 12. [Dólares](#12-dólares)
-13. [Gimnasio](#13-gimnasio)
-14. [Backups](#14-backups)
-15. [Preguntas frecuentes](#15-preguntas-frecuentes)
+13. [Backups](#13-backups)
+14. [Preguntas frecuentes](#14-preguntas-frecuentes)
 
 ---
 
@@ -61,7 +60,6 @@ Al crear una categoría elegís su **Tratamiento en reportes**. Es la decisión 
 - **USDT** — tenencia y ventas de USDT.
 - **Dólares** — compras/ventas de dólares y saldos en USD.
 - **Importar** — carga masiva desde resúmenes de bancos.
-- **Gimnasio** — marcador de visitas.
 - **ABM** — categorías, subcategorías, centros de costo y reglas.
 
 ## 4. Configuración inicial (ABM)
@@ -157,11 +155,7 @@ Para compras y ventas de dólares y algún ingreso/gasto en USD.
 - El botón **“Usar blue de hoy”** sugiere el monto en pesos con la cotización del dólar blue.
 - Los montos en dólares no se suman a ningún informe en pesos, salvo al Flujo de Caja y al total de Saldos de la proyección (a cotización blue).
 
-## 13. Gimnasio
-
-Un marcador entre usuarios: cada visita suma un punto, la meta es **2 por semana** y desde **3** es “WOW”. Gana la semana quien más suma. Hay semana actual, marcador general (semanas ganadas), historial semanal y últimas visitas (por si te equivocaste, se puede borrar una). Tenés que estar logueado para cargar tu visita.
-
-## 14. Backups
+## 13. Backups
 
 Los backups los maneja **el soporte** (la cuenta superadmin), desde la pestaña **Administración**, que solo ve esa cuenta:
 
@@ -172,7 +166,7 @@ El soporte ve los datos de todas las familias **en solo lectura**, eligiendo cu�
 
 Además existe un **backup automático diario a Google Drive** (ver [INSTALACION-Y-OPERACION.md](INSTALACION-Y-OPERACION.md#backup-diario-a-google-drive)).
 
-## 15. Preguntas frecuentes
+## 14. Preguntas frecuentes
 
 **El saldo de una cuenta no coincide con el banco.** Revisá que cargaste la categoría *Saldo Inicial*, que no falten movimientos y que las transferencias (TEC) tengan sus dos puntas. Tocá *Recalcular* en Saldos.
 

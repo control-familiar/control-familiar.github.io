@@ -30,6 +30,8 @@ decisión cambia, se actualiza acá.
 | Backup diario | Workflow `backup-diario` **desactivado** hasta configurar sus secrets (service role key del proyecto nuevo + carpeta de Drive propia). |
 | Vercel | Se evaluó; por ahora se queda en Pages. Si se pasa: deploy desde Actions con la CLI de Vercel después de los tests (no la integración automática, que publica aunque fallen), publicando solo los archivos de la app. Plan Hobby = uso no comercial. |
 
+Supabase Auth → Site URL = la URL de Pages (para los links de los mails): configurado.
+
 Pruebas: **directo contra el proyecto Supabase nuevo** mientras solo haya familias dummy (F5). Cuando entre
 la primera familia real, pasar a probar en local (`supabase start`, requiere Docker Desktop) o en un staging.
 
@@ -61,9 +63,11 @@ la primera familia real, pasar a probar en local (`supabase start`, requiere Doc
 
 | Base común (siempre está) | Opcional (se activa por familia) |
 |---|---|
-| Resumen, Movimientos, Vencimientos, Saldos, Importar, ABM (categorías, centros, reglas) | Gimnasio · USDT · Dólares · Flujo de Caja/Deudas · Facturación ARCA · Tarjetas y cuotas · Regla de "sueldo de fin de mes" |
+| Resumen, Movimientos, Vencimientos, Saldos, Importar, ABM (categorías, centros, reglas) | USDT · Dólares · Flujo de Caja/Deudas · Facturación ARCA · Tarjetas y cuotas · Regla de "sueldo de fin de mes" |
 
 - **Backup**: no es una función de familia; es exclusivo del superadmin.
+- **Gimnasio** (el "bonus track" del original): **no existe en este proyecto** (G1). Se sacaron la tabla, la pestaña y el
+  código; los commits del original que lo toquen hay que adaptarlos al hacer cherry-pick.
 - Una función opcional apagada **se oculta y no se cargan sus datos**, pero no se borra nada.
 - **Facturación ARCA** (D8): por ahora queda resuelta solo para una familia (el certificado vive en los
   secrets de la Edge Function, uno por proyecto). Si una familia la tiene activada pero le faltan CUIT /
@@ -78,18 +82,17 @@ Toda configuración personal está asociada a la familia y documentada en la pro
 - `config_catalogo (clave, tipo, descripcion, valor_default, grupo)` — **global**: define cada configuración
   y su documentación. La leen todos; la modifica solo el superadmin.
 - `familia_config (familia_id, clave, valor)` — solo lo que cada familia tiene distinto del default.
-- Las funciones activables son claves booleanas del catálogo (`feature.gimnasio`, `feature.usdt`, …).
+- Las funciones activables son claves booleanas del catálogo (`feature.usdt`, `feature.dolares`, …).
 - Una configuración nueva aparece en todas las familias con su valor por defecto.
 - Reemplaza a la tabla `configuracion` del original (monotributo, CUIT, razón social).
-- La familia ve su configuración en el ABM **en solo lectura** ("la administra el soporte") — *pendiente de
-  confirmar, ver Pendientes*.
+- La familia **no ve** su configuración en el ABM (C1): la ve y la edita solo el superadmin. La app sí la lee
+  para funcionar (ej. el CUIT para facturar).
 
 ## Personas y titulares (D5)
 
 - `personas (familia_id, nombre, user_id opcional)`.
 - `centros.titular_id` → `personas`. Reemplaza la convención del original (el titular salía de la última letra
   del código del centro: `…A` = Ana, `…F` = Franco).
-- Gimnasio usa estas personas (en el original estaba fijo `check (persona in ('ana','franco'))`).
 - Nada de nombres de personas escritos en el código.
 
 ## Reglas que hoy están escritas en el código (D6)
@@ -160,7 +163,7 @@ create function es_superadmin() returns boolean
 
 ### `familia_id` en todas las tablas de datos (D2)
 
-En `centros`, `categorias`, `subcategorias`, `movimientos`, `vencimientos`, `gimnasio_visitas`, `deudas`,
+En `centros`, `categorias`, `subcategorias`, `movimientos`, `vencimientos`, `deudas`,
 `usdt_movimientos`, `facturas`, `arca_ta`, `reglas_categorizacion` (y las nuevas: `personas`, `familia_config`,
 `familia_importadores_ocultos`):
 
@@ -184,7 +187,6 @@ Para que una fila de una familia no pueda apuntar a una fila de otra:
 ### Claves únicas por familia
 
 - `arca_ta`: PK `(familia_id, ambiente)` → la Edge Function hace `upsert(..., {onConflict:'familia_id,ambiente'})`.
-- `gimnasio_visitas`: `unique (familia_id, persona, fecha)`.
 - `facturas`: el índice único por `(movimiento_id, ambiente)` sigue sirviendo (el movimiento ya es de una familia).
 
 ### Políticas de seguridad (RLS)
@@ -299,7 +301,7 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 |---|---|---|
 | 0 | Fork, Pages, Supabase nuevo, apuntar la app al proyecto nuevo y rutas relativas | ✅ hecho |
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
-| 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | 🟡 código listo; falta aplicar las funciones nuevas en Supabase y probar con la cuenta de soporte |
+| 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | ✅ hecho |
 | 3 | Personas y titulares (D5) | pendiente |
 | 4 | Catálogo de configuración + valores por familia (D3) | pendiente |
 | 5 | Funciones activables (D4) | pendiente |
@@ -312,8 +314,6 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 
 ## Pendientes de definir
 
-- **Configuración visible para la familia**: ¿la ve en el ABM en solo lectura, o no la ve? (propuesta: la ve en
-  solo lectura).
 - **Tests de seguridad en GitHub Actions** además de a mano en el SQL Editor (propuesta: sí, levantando Supabase
   local en el runner, que tiene Docker; agrega ~2–3 min por push).
 
@@ -337,7 +337,7 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | N4 | Botón de backup | Solo superadmin, descarga todas |
 | N5 | FK compuestas | Sí |
 | P1 | Tabla `configuracion` en la fase 1 | Se queda con `familia_id`, PK `(familia_id, clave)`; la escribe solo el superadmin; la reemplaza la fase 4 |
-| P2 | `gimnasio_visitas.persona` | Queda como en el original (`'ana','franco'`): Gimnasio se va a deprecar en este proyecto |
+| P2 | `gimnasio_visitas.persona` | ~~Queda como en el original~~ — reemplazada por G1 |
 | P3 | `arca_ta` | El superadmin no la ve |
 | P4 | Parámetros de los scripts de alta | Bloque `DO` con variables arriba, validaciones y verificación final |
 | P5 | Cómo se identifican en los scripts | Usuario por email, familia por nombre (`familias.nombre` único) |
@@ -349,6 +349,8 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | Q3 | Restauración por familia | Función `restaurar_familia()`: valida familia, todo o nada, recrea la familia si no existe; solo backups v3 |
 | Q4 | Usuario sin familia | Aviso en vez de la app vacía |
 | Q5 | Selector de familia | Recuerda la última elegida; si no, la primera alfabética |
+| G1 | Gimnasio | No existe en este proyecto: se sacó tabla, pestaña y código |
+| C1 | ¿La familia ve su configuración? | No: solo el superadmin (la app la lee igual para funcionar) |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

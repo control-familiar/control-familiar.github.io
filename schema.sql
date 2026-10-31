@@ -162,16 +162,6 @@ create table vencimientos (
   foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id)
 );
 
--- Gimnasio (se va a deprecar en este proyecto; queda igual que en el original mientras tanto)
-create table gimnasio_visitas (
-  id uuid primary key default gen_random_uuid(),
-  familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
-  persona text not null check (persona in ('ana','franco')),
-  fecha date not null,
-  created_at timestamptz default now(),
-  unique (familia_id, persona, fecha)
-);
-
 -- Deudas (para la pestaña "Flujo de Caja")
 create table deudas (
   id uuid primary key default gen_random_uuid(),
@@ -265,7 +255,7 @@ create table reglas_categorizacion (
 );
 
 -- Índices por familia_id en las tablas donde no lo cubre ya un unique/PK que empiece por familia_id
--- (centros, categorias, subcategorias, movimientos, gimnasio_visitas, configuracion, arca_ta).
+-- (centros, categorias, subcategorias, movimientos, configuracion, arca_ta).
 create index vencimientos_familia_idx on vencimientos(familia_id);
 create index deudas_familia_idx on deudas(familia_id);
 create index usdt_movimientos_familia_idx on usdt_movimientos(familia_id);
@@ -294,7 +284,6 @@ alter table categorias enable row level security;
 alter table subcategorias enable row level security;
 alter table movimientos enable row level security;
 alter table vencimientos enable row level security;
-alter table gimnasio_visitas enable row level security;
 alter table deudas enable row level security;
 alter table usdt_movimientos enable row level security;
 alter table facturas enable row level security;
@@ -316,7 +305,7 @@ declare
   t text;
 begin
   foreach t in array array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
-                           'gimnasio_visitas', 'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion']
+                           'deudas', 'usdt_movimientos', 'facturas', 'reglas_categorizacion']
   loop
     execute format($p$
       create policy leer on %1$I for select to authenticated
@@ -385,7 +374,7 @@ as $$
 declare
   -- En orden de dependencias: primero las que otras referencian.
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-                         'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
+                         'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'configuracion'];
   t text;
   filas jsonb;
   columnas text;

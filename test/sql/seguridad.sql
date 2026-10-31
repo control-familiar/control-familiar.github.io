@@ -22,7 +22,7 @@ do $tests$
 declare
   -- Tablas de datos de cada familia (todas con familia_id)
   tablas text[] := array['centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos',
-                         'gimnasio_visitas', 'deudas', 'usdt_movimientos', 'facturas',
+                         'deudas', 'usdt_movimientos', 'facturas',
                          'configuracion', 'arca_ta', 'reglas_categorizacion'];
   t text;
   n int;
@@ -65,8 +65,6 @@ begin
       values (fb, current_date, cen_b, cat_b, sub_b, 200) returning id into mov_b;
     insert into public.vencimientos (familia_id, concepto, fecha, centro_id) values
       (fa, 'Venc A', current_date, cen_a), (fb, 'Venc B', current_date, cen_b);
-    insert into public.gimnasio_visitas (familia_id, persona, fecha) values
-      (fa, 'ana', current_date), (fb, 'ana', current_date);
     insert into public.deudas (familia_id, concepto, centro_id) values
       (fa, 'Deuda A', cen_a), (fb, 'Deuda B', cen_b);
     insert into public.usdt_movimientos (familia_id, fecha, tipo, cantidad, movimiento_id) values

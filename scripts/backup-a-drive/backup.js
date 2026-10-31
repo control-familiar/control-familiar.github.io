@@ -19,7 +19,7 @@ const GDRIVE_OAUTH_REFRESH_TOKEN = requireEnv('GDRIVE_OAUTH_REFRESH_TOKEN');
 // desde la pestaña Administración (de a una familia). Un test chequea que las dos listas coincidan.
 // Con la service role key se leen todas las familias (se saltea RLS).
 const TABLAS = ['familias', 'miembros', 'centros', 'categorias', 'subcategorias', 'movimientos', 'vencimientos', 'deudas',
-  'usdt_movimientos', 'facturas', 'gimnasio_visitas', 'reglas_categorizacion', 'configuracion'];
+  'usdt_movimientos', 'facturas', 'reglas_categorizacion', 'configuracion'];
 // Columna para ordenar al paginar (sin un orden fijo, las páginas pueden repetir o saltear filas).
 const CLAVE_ORDEN = { miembros: 'user_id', configuracion: 'familia_id.asc,clave' };
 // Supabase devuelve como máximo 1000 filas por request: hay que pedirlas de a páginas.
