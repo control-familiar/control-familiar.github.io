@@ -3885,20 +3885,14 @@ function renderResumen(){
       '<span>'+esc(s.label)+'</span><span class="mono '+(s.montoReal>=0?'ingreso':'egreso')+'">'+fmtMonto(s.montoReal)+'</span></div>';
   }).join('');
 
-  // Tendencia mensual (Ingreso vs Egreso), respetando filtro de Centro/Categoría pero mostrando todos los meses disponibles
-  // (usa su propio set sin aplicar f.mes, porque "filtrados"/movsSinInversion sí lo aplican y acá queremos ver todos los meses igual)
-  var movsRealesTrend = movsCentro.filter(function(m){
-    if(f.categoria.length && f.categoria.indexOf(m.categoriaId)===-1) return false;
-    return !esCategoriaFueraDeReportes(m.categoriaId);
-  });
+  // Tendencia mensual: las mismas cuentas que las tarjetas, mes por mes (respeta Centro/Categoría pero no
+  // el filtro de Mes: muestra todos). Ingresos = Total ingresos; Egresos = Total egresos + Inversión, así la
+  // distancia entre las dos barras es el Saldo de ese mes.
   var mesesTrend = meses.slice().sort();
   var dataPorMes = {};
-  movsRealesTrend.forEach(function(m){
-    var mes = (m.fecha||'').slice(0,7);
-    if(!mes) return;
-    if(!dataPorMes[mes]) dataPorMes[mes] = {ingreso:0, egreso:0};
-    dataPorMes[mes].ingreso += Number(m.ingreso)||0;
-    dataPorMes[mes].egreso += Number(m.egreso)||0;
+  mesesTrend.forEach(function(mes){
+    var t = calcularTotalesResumenKpis(f.centro, f.categoria, [mes]);
+    dataPorMes[mes] = { ingreso: Math.max(0, t.totalIngreso), egreso: Math.max(0, t.totalEgreso + t.totalInversion) };
   });
   var trendSvg = trendChart(mesesTrend, dataPorMes, 640, 220);
 
@@ -3918,12 +3912,14 @@ function renderResumen(){
   estadoActualHtml+
   '<div class="summary-cards">'+
     '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-arrow-up"></i></div><div class="label">Total ingresos</div><div class="value ingreso">'+fmtMonto(totalIngreso)+'</div>'+deltaHtml(totalIngreso, true, anterior?anterior.totalIngreso:null)+'</div>'+
-    '<div class="summary-card"><div class="kpi-ic kpi-ic-danger"><i class="bi bi-arrow-down"></i></div><div class="label">Total egresos</div><div class="value egreso">'+fmtMonto(totalEgreso)+'</div>'+deltaHtml(totalEgreso, false, anterior?anterior.totalEgreso:null)+'</div>'+
+    '<div class="summary-card"><div class="kpi-ic kpi-ic-danger"><i class="bi bi-arrow-down"></i></div><div class="label">Total egresos</div><div class="value egreso">'+fmtMonto(totalEgreso)+'</div>'+deltaHtml(totalEgreso, false, anterior?anterior.totalEgreso:null)+
+      (actual.cantPendientes ? '<div style="font-size:11px;margin-top:2px;color:var(--ink-soft)">+ '+fmtMonto(actual.pendientes)+' pendientes (<button type="button" class="link" data-action="ir-a-vencimientos" style="font-size:11px;padding:0">ver Vencimientos</button>)</div>' : '')+'</div>'+
     '<div class="summary-card"><div class="kpi-ic kpi-ic-warning"><i class="bi bi-building"></i></div><div class="label">'+esc(etiquetaInversion())+'</div><div class="value egreso">'+fmtMonto(totalInversion)+'</div></div>'+
     '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-wallet2"></i></div><div class="label">Saldo</div><div class="value">'+fmtMonto(saldo)+'</div>'+(tasaAhorro!==null?'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">'+tasaAhorro+'% del ingreso</div>':'')+deltaHtml(saldo, true, anterior?anterior.saldo:null)+'</div>'+
   '</div>'+
   '<div class="card">'+
     '<h3>Tendencia mensual (Ingresos vs Egresos)</h3>'+
+    '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Cada mes, calculado igual que las tarjetas de arriba: Ingresos = Sueldo; Egresos = gastos netos + '+esc(etiquetaInversion())+'. La diferencia es el Saldo del mes. Respeta los filtros de Centro y Categoría.</div>'+
     trendSvg+
   '</div>'+
   '<div class="card">'+

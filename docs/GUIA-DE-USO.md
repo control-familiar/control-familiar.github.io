@@ -125,8 +125,9 @@ En **Resumen** aparece un aviso con los vencimientos próximos.
 
 - **Estado actual:** foto de hoy (saldos, ahorro, tenencia en USDT y dólares). No depende de los filtros.
 - **Filtros:** Centro, Categoría y Mes (varios a la vez). Por defecto, el mes actual. Los totales se pueden ver por **Categoría** o por **Centro**.
-- **Tendencia mensual** de ingresos vs. egresos.
-- **Total por categoría/centro:** neto (ingresos − egresos). Verde = a favor, coral = en contra. Excluye TEC, Inversión y Sueldo.
+- **Total ingresos / Total egresos / Inversión / Saldo:** ingresos = lo de categorías *Sueldo*; egresos = gastos netos del resto (sin TEC ni Solo control); Inversión aparte; Saldo = ingresos − egresos − Inversión. Cuentan solo los movimientos **hasta hoy**: lo que tiene fecha futura en el período se avisa debajo de Total egresos ("+ $X pendientes"). Los gastos en dólares suman pasados a pesos al dólar blue de hoy.
+- **Tendencia mensual:** las mismas cuentas, mes por mes (Egresos incluye Inversión, así la distancia entre las barras es el Saldo de cada mes).
+- **Total por categoría/centro:** neto (ingresos − egresos). Verde = a favor, coral = en contra. Excluye TEC, Solo control, Inversión y Sueldo; incluye los gastos en dólares (en pesos).
 - **Top contrapartes:** las 8 con mayor movimiento neto del período.
 - **Comparativa mensual por categoría:** neto por categoría, mes a mes (con rango configurable).
 
