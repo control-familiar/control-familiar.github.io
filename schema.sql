@@ -9,10 +9,10 @@
 --
 -- Diseño y decisiones: docs/MULTI-FAMILIA.md.
 --
--- Mientras la base tenga solo familias dummy, los cambios de
--- esquema se hacen directamente acá y la base se recrea. Desde
--- que entre la primera familia real, cada cambio va como
--- migración nueva en migrations/ Y se refleja acá.
+-- Ya hay una familia real: la base del proyecto NO se recrea.
+-- Cada cambio de esquema va como migración nueva en migrations/
+-- Y se refleja acá; se prueba con "npm run test:db" (ver
+-- docs/INSTALACION-Y-OPERACION.md, "Cambios de esquema").
 -- migrations/historico/ son las migraciones del proyecto
 -- original (una sola familia), solo como registro.
 -- ============================================================

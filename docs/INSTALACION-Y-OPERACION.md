@@ -35,6 +35,7 @@ Guía técnica: levantar una base nueva, publicar, tests, cambios de esquema, ba
 npm ci
 npm test            # una corrida (vitest + jsdom)
 npm run test:watch
+npm run test:db     # schema.sql y migraciones en PGlite + tests de seguridad (ver "Cambios de esquema")
 ```
 
 Para ver la app localmente alcanza con servir la carpeta con cualquier servidor estático (todas las rutas son relativas).
@@ -45,8 +46,14 @@ Para ver la app localmente alcanza con servir la carpeta con cualquier servidor 
 
 ## 5. Cambios de esquema
 
-- Mientras la base tenga solo familias dummy, los cambios se hacen en `schema.sql` (y se aplican con un script puntual en el SQL Editor, o recreando la base).
-- **Desde la primera familia real** (fase 9), cada cambio va como **migración nueva en `migrations/`** (para aplicar a la base en uso) **y** reflejado en `schema.sql` (para levantar una base nueva de cero).
+Ya hay una familia real (fase 9): **la base del proyecto no se recrea**. Cada cambio va como **migración nueva en `migrations/`** (para aplicar a la base en uso) **y** reflejado en `schema.sql` (para levantar una base nueva de cero). Los pasos:
+
+1. Escribir `migrations/AAAA-MM-DD_descripcion.sql` entre `begin;` y `commit;`, sin borrar datos, y el mismo cambio en `schema.sql`.
+2. `npm run test:db` hasta que dé todo ok. En PGlite (sin Docker) arma la base desde `schema.sql` y la base como está en `origin/main` + las migraciones nuevas, corre los tests de seguridad en las dos y verifica que queden con la misma estructura. En cada push lo mismo corre en Actions contra el main anterior.
+3. Correr la migración en el **SQL Editor** del proyecto y anotar en su encabezado "Aplicada en el proyecto Supabase el AAAA-MM-DD".
+4. Recién entonces commit y push (el push publica la app, que puede necesitar lo nuevo de la base).
+
+Otros cambios:
 - Una clave de configuración nueva = `insert` en `config_catalogo`; un banco nuevo para importar = parser en `app.js` (`PARSERS_IMPORTACION`) + `insert` en `importadores`. Les aparecen a todas las familias.
 - `migrations/historico/` son las migraciones del proyecto original (una sola familia): no se aplican acá.
 

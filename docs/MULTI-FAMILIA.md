@@ -18,7 +18,8 @@ decisión cambia, se actualiza acá.
 - **Traer cambios del original**: el original está como remote `upstream`. Los arreglos/mejoras que sirvan
   se traen con `git cherry-pick` de commits puntuales. **No usar el botón "Sync fork" de GitHub**: intenta
   mergear todo el original y, con el código ya multi-familia, genera conflictos por todos lados.
-- **Datos de prueba**: solo familias dummy, nada de datos reales (F3). Ver [Familias dummy](#familias-dummy).
+- **Datos**: desde el 2026-10-31 está la **primera familia real** (fase 9). Las familias dummy siguen en la misma
+  base para probar (M2). Ver [Familias dummy](#familias-dummy).
 
 ## Infraestructura
 
@@ -27,13 +28,27 @@ decisión cambia, se actualiza acá.
 | Repo | `anitacasadei/control-economico-familiar` (fork, público) |
 | Deploy | GitHub Pages vía Actions (`.github/workflows/test.yml`): tests → publica solo si pasan. URL: https://anitacasadei.github.io/control-economico-familiar/ |
 | Base | Proyecto Supabase `control-economico-familiar` (`ssfbamnomyjkuixqzxok`), en la cuenta de Ana. Signup público deshabilitado. |
-| Backup diario | Workflow `backup-diario` **desactivado** hasta configurar sus secrets (service role key del proyecto nuevo + carpeta de Drive propia). |
+| Backup diario | Workflow `backup-diario` **desactivado** hasta configurar sus secrets (service role key del proyecto nuevo + carpeta de Drive propia). Con la familia real, Ana decidió activarlo más adelante; mientras tanto, backup manual desde Administración → Descargar backup. |
 | Vercel | Se evaluó; por ahora se queda en Pages. Si se pasa: deploy desde Actions con la CLI de Vercel después de los tests (no la integración automática, que publica aunque fallen), publicando solo los archivos de la app. Plan Hobby = uso no comercial. |
 
 Supabase Auth → Site URL = la URL de Pages (para los links de los mails): configurado.
 
-Pruebas: **directo contra el proyecto Supabase nuevo** mientras solo haya familias dummy (F5). Cuando entre
-la primera familia real, pasar a probar en local (`supabase start`, requiere Docker Desktop) o en un staging.
+Pruebas (M1): la base real **no se recrea ni se usa para probar**. Los cambios de esquema se prueban con
+`npm run test:db` ([`scripts/probar-db.mjs`](../scripts/probar-db.mjs)): en PGlite (Postgres en WebAssembly, sin
+Docker) arma la base desde `schema.sql` y la base como está en `origin/main` + las migraciones nuevas, corre los
+tests de seguridad en las dos y verifica que tengan la misma estructura. Lo mismo corre en Actions en cada push
+(contra el main anterior), además del job `seguridad-db` con un Supabase local. Se descartaron un proyecto de
+staging (otro proyecto para mantener) y Supabase local con Docker en la PC. Antes (F5), mientras solo había
+familias dummy, se probaba directo en el proyecto.
+
+### Cómo se hace un cambio de esquema (M3)
+
+1. Escribir la migración en `migrations/AAAA-MM-DD_descripcion.sql`, entre `begin;` y `commit;` (todo o nada),
+   que no borre datos, y reflejar el mismo cambio en `schema.sql`.
+2. `npm run test:db` hasta que dé todo ok (y `npm test` para la app).
+3. Correr la migración en el SQL Editor del proyecto y anotar en su encabezado "Aplicada en el proyecto
+   Supabase el AAAA-MM-DD".
+4. Recién entonces commit y push: el push publica la app, que ya puede necesitar lo nuevo de la base.
 
 ---
 
@@ -376,13 +391,18 @@ contra el proyecto con las familias dummy cargadas. Devuelve la lista de chequeo
 - **"Familia Demo"**: movimientos, categorías y centros inventados, para ver la app funcionando.
 - **"Familia Prueba"**: casi vacía, para probar el aislamiento entre familias.
 
+Siguen en la base real junto a la familia real (M2): sirven para probar la app publicada con un usuario de
+prueba sin tocar datos reales. RLS las aísla; el superadmin las ve en el selector.
+
 Se cargan con [`scripts/sql/datos_dummy.sql`](../scripts/sql/datos_dummy.sql) (fechas relativas al mes actual).
 Usuarios: `anitacasadei+demo@gmail.com` y `anitacasadei+prueba@gmail.com` (alias de Gmail de Ana), creados a mano
 y asignados con `alta_miembro.sql`.
 
 ## Puesta en marcha de la base
 
-Para una familia real, el paso a paso está en [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#2-alta-de-una-familia-nueva). Para levantar la base de pruebas desde cero:
+Para una familia real, el paso a paso está en [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#2-alta-de-una-familia-nueva).
+Con la familia real cargada, **la base del proyecto no se recrea**: esto es para levantar una base nueva (otro
+proyecto, o si hubiera que rehacerla) desde cero:
 
 En el SQL Editor del proyecto, en este orden:
 
@@ -397,9 +417,10 @@ En el SQL Editor del proyecto, en este orden:
 Los scripts de alta tienen las variables arriba de todo (bloque `DO`), validan (usuario inexistente, familia
 inexistente, ya es miembro de otra, es superadmin) y terminan con una consulta de verificación (P4, P5).
 
-Mientras haya solo familias dummy, los cambios de esquema se hacen en `schema.sql` y la base se recrea. Desde la
-fase 9, cada cambio va como migración nueva en `migrations/` **y** en `schema.sql`, como en el original (P7).
-`migrations/historico/` son las del original, solo como registro.
+Desde la fase 9 (ya), cada cambio de esquema va como migración nueva en `migrations/` **y** en `schema.sql`,
+como en el original (P7), siguiendo [los pasos de M3](#cómo-se-hace-un-cambio-de-esquema-m3). Mientras hubo solo
+familias dummy se cambiaba solo `schema.sql` y la base se recreaba. `migrations/historico/` son las del
+original, solo como registro.
 
 Los datos iniciales del original (centros, reglas de categorización, CUIT/razón social de Ana) **no** van en
 `schema.sql` de este proyecto.
@@ -419,7 +440,7 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | ✅ hecho |
 | 7 | Importadores en la base + ocultos por familia (D7) | ✅ hecho |
 | 8 | Documentación (README, guías) y scripts de alta definitivos | ✅ hecho |
-| 9 | Alta de la primera familia real | pendiente |
+| 9 | Alta de la primera familia real; cambios de base por migración (P7, M1–M3) | ✅ hecho (2026-10-31) |
 
 Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que todo nazca con `familia_id`.
 
@@ -441,7 +462,7 @@ Fuera de las fases: **vencimientos recurrentes** (V1–V6) ✅ hecho.
 | D7 | Importadores | Tablas en la base + lista restrictiva de ocultos por familia |
 | D8 | ARCA | Solo una familia por ahora; mensaje si faltan datos de facturación |
 | D9 | Backup | Global, solo superadmin |
-| D10/F5 | Dónde se prueba | Contra el proyecto nuevo mientras sea solo dummy |
+| D10/F5 | Dónde se prueba | ~~Contra el proyecto nuevo mientras sea solo dummy~~ → M1 desde la familia real |
 | D11 | Alta de familias y miembros | Scripts SQL; categorías y centros por los ABM existentes |
 | N2 | Superadmin | Cuenta aparte, sin familia, ve todas |
 | N3 | Creación de usuarios | A mano en Supabase + script de asignación |
@@ -494,5 +515,8 @@ Fuera de las fases: **vencimientos recurrentes** (V1–V6) ✅ hecho.
 | S5 | Protección extra superadmin | No |
 | F1 | ¿Se migra la familia Santarelli? | No por ahora |
 | F2 | ¿El original sigue evolucionando? | Sí; se traen cambios con cherry-pick |
-| F3 | Datos de prueba | Solo familias dummy |
+| F3 | Datos de prueba | ~~Solo familias dummy~~ → desde la fase 9 hay una familia real; las dummy quedan (M2) |
+| M1 | Dónde se prueban los cambios de base con la familia real | `npm run test:db` (PGlite) en la PC + lo mismo y `seguridad-db` en Actions; no staging ni Docker |
+| M2 | Familias dummy con la familia real | Se quedan en la base, para probar |
+| M3 | Cómo se hace un cambio de esquema | `migrations/AAAA-MM-DD_descripcion.sql` + `schema.sql` → `test:db` → correrla en el proyecto → push |
 | F4 | Cómo se creó el repo | Fork en la cuenta de Ana |

@@ -8,4 +8,7 @@ Fork multi-familia de francosantarelli/control-economico (remote `upstream`), ll
 - Si se cambia una decisión o se completa una fase, actualizar ese documento.
 - Los commits van a nombre de Ana (git config local del repo). No usar "Sync fork" de GitHub; los cambios del
   original se traen con `git cherry-pick`.
-- La app apunta al proyecto Supabase `ssfbamnomyjkuixqzxok` (no al del original). Hoy solo hay familias dummy.
+- La app apunta al proyecto Supabase `ssfbamnomyjkuixqzxok` (no al del original). **Ya hay una familia real**
+  (además de las dummy): la base no se recrea ni se usa para probar. Cambios de esquema = migración en
+  `migrations/` + `schema.sql`, probados con `npm run test:db`, corridos por Ana en el SQL Editor antes del push
+  (M3 en docs/MULTI-FAMILIA.md).

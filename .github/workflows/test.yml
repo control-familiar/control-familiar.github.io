@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # test:db lee schema.sql y migrations/ del main anterior
 
       - uses: actions/setup-node@v4
         with:
@@ -31,6 +33,11 @@ jobs:
 
       - name: Correr tests
         run: npm test
+
+      # schema.sql y migraciones (M1): la base de antes de este push (en un PR, la de main) + las migraciones
+      # nuevas tiene que quedar igual que schema.sql, y pasar los tests de seguridad. Ver scripts/probar-db.mjs.
+      - name: Probar schema.sql y migraciones
+        run: npm run test:db -- ${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref) }}
 
   # Tests de seguridad de la base (RLS, FK compuestas, superadmin; ver docs/MULTI-FAMILIA.md):
   # levanta un Supabase local en el runner, aplica schema.sql y los datos dummy, y corre
