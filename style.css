@@ -391,6 +391,11 @@ footer.small{ margin-top:28px; font-size:11px; color:var(--ink-soft); text-align
 .login-card .field{ display:flex; flex-direction:column; gap:4px; }
 .login-card label{ font-size:11px; color:var(--ink-soft); font-weight:500; }
 .login-card input{ font-family:inherit; font-size:13px; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; }
+/* Ojito para mostrar/ocultar la contraseña, dentro del campo a la derecha */
+.password-wrap{ position:relative; }
+.password-wrap input{ padding-right:38px; box-sizing:border-box; }
+.password-ojo{ position:absolute; top:50%; right:4px; transform:translateY(-50%); background:none; border:none; box-shadow:none; color:var(--ink-soft); padding:4px 8px; font-size:15px; line-height:1; cursor:pointer; width:auto; }
+.password-ojo:hover{ background:none; color:var(--ink); }
 
 .modal-overlay{
   position:fixed; inset:0; background:rgba(51,65,59,.45); z-index:1000;

@@ -6516,6 +6516,16 @@ async function handleAction(action, id){
 
 document.getElementById('btnLogin').addEventListener('click', intentarLogin);
 document.getElementById('login-password').addEventListener('keydown', function(ev){ if(ev.key==='Enter') intentarLogin(); });
+// Ojito del login: muestra u oculta la contraseña que se está escribiendo (sin perder el foco ni el cursor).
+document.getElementById('btnVerPassword').addEventListener('click', function(){
+  var input = document.getElementById('login-password');
+  var mostrar = input.type === 'password';
+  input.type = mostrar ? 'text' : 'password';
+  this.innerHTML = '<i class="bi '+(mostrar ? 'bi-eye-slash' : 'bi-eye')+'"></i>';
+  this.setAttribute('aria-label', mostrar ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  this.setAttribute('title', mostrar ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  input.focus();
+});
 initAuth();
 
 // Cerrar cualquier filtro multiselect abierto al hacer clic fuera de él (listener único, no se repite en cada render).
