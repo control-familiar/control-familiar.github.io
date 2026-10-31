@@ -1,11 +1,11 @@
-# Instalación y operación — Control Económico
+# Instalación y operación — Control Económico Familiar
 
-Guía para quien administra la app: levantar una base nueva, publicar, dar usuarios, backups, facturación y tests. Para el uso diario ver [GUIA-DE-USO.md](GUIA-DE-USO.md).
+Guía técnica: levantar una base nueva, publicar, tests, cambios de esquema, backup diario y facturación ARCA. El día a día del soporte (altas de familias y usuarios, configuración, restauración) está en [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md); el uso de la app, en [GUIA-DE-USO.md](GUIA-DE-USO.md); el diseño y las decisiones, en [MULTI-FAMILIA.md](MULTI-FAMILIA.md).
 
 ## Arquitectura
 
 - **Frontend:** `index.html` + `app.js` + `style.css`. JS plano sin build; carga Bootstrap, Supabase JS, ExcelJS y qrcode-generator desde CDN.
-- **Backend:** Supabase (Postgres + Auth + Edge Functions). La URL y la clave *anon* están al comienzo de `app.js`.
+- **Backend:** Supabase (Postgres + Auth + Edge Functions), proyecto `ssfbamnomyjkuixqzxok`. La URL y la clave *anon* están al comienzo de `app.js`. Multi-familia: cada fila tiene `familia_id` y RLS separa las familias (ver [MULTI-FAMILIA.md](MULTI-FAMILIA.md#diseño-de-la-base)).
 - **Hosting:** GitHub Pages, publicado por GitHub Actions.
 - **Extras:** backup diario a Drive (GitHub Actions) y facturación ARCA (Edge Function).
 
@@ -18,10 +18,10 @@ Guía para quien administra la app: levantar una base nueva, publicar, dar usuar
 
 ## 2. Usuarios y seguridad
 
-- En Supabase: **Authentication → Users → Add user** (email y contraseña) para cada persona.
-- Asignar cada usuario a su familia con [`scripts/sql/alta_miembro.sql`](../scripts/sql/alta_miembro.sql): un usuario que no es miembro de ninguna familia entra y no ve nada.
-- **Deshabilitar el signup público** (Authentication → Settings). Una cuenta sin familia no ve datos, pero no tiene sentido dejar que cualquiera se cree una.
-- En `alta_miembro.sql` se carga también el **nombre** con el que se ve a cada usuario (por ejemplo, como titular de un Centro de Costo).
+- **Deshabilitar el signup público** (Authentication → Settings): los usuarios los crea el soporte. Una cuenta sin familia no ve datos, pero no tiene sentido dejar que cualquiera se cree una.
+- **Authentication → URL Configuration → Site URL** = la URL de Pages, para que los links de los mails (recuperar contraseña) lleven a la app.
+- Crear la cuenta de soporte y darla de alta con [`alta_superadmin.sql`](../scripts/sql/alta_superadmin.sql).
+- Familias y usuarios: ver [GUIA-DE-SOPORTE.md → Alta de una familia nueva](GUIA-DE-SOPORTE.md#2-alta-de-una-familia-nueva).
 
 ## 3. Publicación (GitHub Pages)
 
@@ -39,9 +39,22 @@ npm run test:watch
 
 Para ver la app localmente alcanza con servir la carpeta con cualquier servidor estático (todas las rutas son relativas).
 
+**Tests de seguridad de la base** ([`test/sql/seguridad.sql`](../test/sql/seguridad.sql)): verifican el aislamiento entre familias, las FK compuestas, el superadmin, la configuración, los importadores y la restauración. Crean sus propios usuarios y familias y deshacen todo al final, así que se pueden correr:
+- en el **SQL Editor** de Supabase, contra el proyecto (devuelve la lista de chequeos en "ok" o corta con "FALLA: ...");
+- en **GitHub Actions**, en cada push: el job `seguridad-db` levanta un Supabase local, aplica `schema.sql` y los datos dummy, y los corre. Si fallan, no se publica.
+
+## 5. Cambios de esquema
+
+- Mientras la base tenga solo familias dummy, los cambios se hacen en `schema.sql` (y se aplican con un script puntual en el SQL Editor, o recreando la base).
+- **Desde la primera familia real** (fase 9), cada cambio va como **migración nueva en `migrations/`** (para aplicar a la base en uso) **y** reflejado en `schema.sql` (para levantar una base nueva de cero).
+- Una clave de configuración nueva = `insert` en `config_catalogo`; un banco nuevo para importar = parser en `app.js` (`PARSERS_IMPORTACION`) + `insert` en `importadores`. Les aparecen a todas las familias.
+- `migrations/historico/` son las migraciones del proyecto original (una sola familia): no se aplican acá.
+
 ## Backup diario a Google Drive
 
-El workflow `.github/workflows/backup-diario.yml` corre todos los días a las 06:00 (Argentina) y también a mano desde **Actions → Backup diario a Google Drive → Run workflow**. Lee todas las tablas con la clave *service_role* y sube un `.json` a una carpeta de Drive. Ese archivo se restaura desde la app (ABM › Backup).
+> **Hoy está desactivado**: se activa cuando se carguen sus secrets (service role key de este proyecto y una carpeta de Drive propia).
+
+El workflow `.github/workflows/backup-diario.yml` corre todos los días a las 06:00 (Argentina) y también a mano desde **Actions → Backup diario a Google Drive → Run workflow**. Lee las tablas de **todas las familias** con la clave *service_role* (que se saltea RLS) y sube un `.json` a una carpeta de Drive. Es el mismo formato que el botón del soporte: se restaura de a una familia desde **Administración** (ver [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#5-backups-y-restauración)).
 
 ### Secrets del repositorio (Settings → Secrets and variables → Actions)
 
@@ -68,7 +81,9 @@ Se usa OAuth (con el usuario dueño de la carpeta) y no una cuenta de servicio, 
 
 ## Facturación ARCA
 
-La Edge Function `supabase/functions/facturar-arca` emite **Factura C a Consumidor Final** para ventas de USDT, valida el tope de Monotributo (12 meses móviles) y guarda el resultado en la tabla `facturas`. Corre con el JWT del usuario logueado (mismas políticas RLS).
+La Edge Function `supabase/functions/facturar-arca` emite **Factura C a Consumidor Final** para ventas de USDT, valida el tope de Monotributo (12 meses móviles) y guarda el resultado en la tabla `facturas`. Corre con el JWT del usuario logueado (mismas políticas RLS), así que todo queda en su familia.
+
+**Por ahora resuelta para una sola familia** (D8): el certificado y el CUIT viven en los secrets de la función, uno por proyecto. La familia tiene que tener prendidas USDT y Facturación ARCA y cargados el CUIT y la razón social (Administración → Configuración).
 
 - Las tablas necesarias (`facturas`, `familia_config`) ya están en `schema.sql`. El CUIT, la razón social y el tope de Monotributo de cada familia los carga el soporte en **Administración → Configuración** (ver [MULTI-FAMILIA.md](MULTI-FAMILIA.md#configuración-por-familia-d3)).
 - Homologación (pruebas) y producción son independientes; se alterna con el secret `ARCA_AMBIENTE`.
@@ -90,8 +105,10 @@ Despliegue: `npx supabase functions deploy facturar-arca`.
 
 | Síntoma | Causa probable |
 |---|---|
-| La app queda en “Cargando datos…” o muestra un error rojo | Falta alguna tabla o columna: aplicar las migraciones pendientes. |
+| La app queda en “Cargando datos…” o muestra un error rojo | A la base le falta algo que la app ya usa: aplicar el script o la migración del cambio. Por eso, primero se aplica en la base y después se publica. |
 | No se puede iniciar sesión | Usuario inexistente en Supabase Auth. |
+| Un usuario entra y ve que no tiene familia | Falta `alta_miembro.sql` (ver [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#6-problemas-comunes)). |
+| Falla el job `seguridad-db` | Si el error dice "FALLA: ...", se rompió una regla de seguridad: no publicar hasta corregirla. Si es del entorno (Supabase local no levantó), reintentar el job. |
 | El deploy no ocurre | Fallan los tests, o Pages no está en “GitHub Actions”. |
 | El backup diario falla | Secret faltante o vencido (ver el log en la pestaña Actions); si pasaron 7 días de uso, revisar que la app OAuth esté publicada. |
 | La factura ARCA es rechazada | Revisar certificado y punto de venta del ambiente activo, y el mensaje que devuelve ARCA. |

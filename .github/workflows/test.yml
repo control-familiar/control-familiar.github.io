@@ -32,11 +32,40 @@ jobs:
       - name: Correr tests
         run: npm test
 
-  # Solo corre en push a main (no en pull requests), y solo si "test" pasó — así un
-  # test roto nunca llega a publicarse en GitHub Pages. Requiere que en Settings →
-  # Pages → Source esté elegido "GitHub Actions" (no "Deploy from a branch").
+  # Tests de seguridad de la base (RLS, FK compuestas, superadmin; ver docs/MULTI-FAMILIA.md):
+  # levanta un Supabase local en el runner, aplica schema.sql y los datos dummy, y corre
+  # test/sql/seguridad.sql. Si un chequeo falla, psql corta con "FALLA: ..." y no se publica.
+  seguridad-db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+
+      - name: Levantar Supabase local
+        # Solo hace falta la base y Auth (crea el esquema auth); el resto no se usa.
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api
+
+      - name: Aplicar schema.sql y datos dummy
+        env:
+          DB: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          psql "$DB" -v ON_ERROR_STOP=1 -q -f schema.sql
+          psql "$DB" -v ON_ERROR_STOP=1 -q -f scripts/sql/datos_dummy.sql
+          psql "$DB" -v ON_ERROR_STOP=1 -q -f scripts/sql/estado.sql
+
+      - name: Correr tests de seguridad
+        env:
+          DB: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: psql "$DB" -v ON_ERROR_STOP=1 -f test/sql/seguridad.sql
+
+  # Solo corre en push a main (no en pull requests), y solo si pasaron los tests de la app y
+  # los de seguridad — así un test roto nunca llega a publicarse en GitHub Pages. Requiere que
+  # en Settings → Pages → Source esté elegido "GitHub Actions" (no "Deploy from a branch").
   deploy:
-    needs: test
+    needs: [test, seguridad-db]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:

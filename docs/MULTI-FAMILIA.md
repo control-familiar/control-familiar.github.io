@@ -57,7 +57,8 @@ la primera familia real, pasar a probar en local (`supabase start`, requiere Doc
     queda libre por si algún día Ana es miembro de una familia en este proyecto (F1).
 - **Altas por script** (N3, S3): el usuario se crea a mano en Supabase (Authentication → Users) y se lo asigna
   a una familia / como superadmin con scripts SQL versionados (`alta_familia.sql`, `alta_miembro.sql`,
-  `alta_superadmin.sql`). La pestaña Administración por ahora solo **muestra** familias y miembros.
+  `alta_superadmin.sql`; bajas con `baja_miembro.sql`). La pestaña Administración **muestra** familias y miembros (y
+  edita configuración e importadores de cada familia). Paso a paso en [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md).
 
 ## Funciones: base común y opcionales (D4)
 
@@ -343,6 +344,8 @@ y asignados con `alta_miembro.sql`.
 
 ## Puesta en marcha de la base
 
+Para una familia real, el paso a paso está en [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#2-alta-de-una-familia-nueva). Para levantar la base de pruebas desde cero:
+
 En el SQL Editor del proyecto, en este orden:
 
 1. [`schema.sql`](../schema.sql) (base vacía).
@@ -376,16 +379,14 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 4 | Catálogo de configuración + valores por familia (D3) | ✅ hecho |
 | 5 | Funciones activables (D4) | ✅ hecho |
 | 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | ✅ hecho |
-| 7 | Importadores en la base + ocultos por familia (D7) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
-| 8 | Documentación (README, guías) y scripts de alta definitivos | pendiente |
+| 7 | Importadores en la base + ocultos por familia (D7) | ✅ hecho |
+| 8 | Documentación (README, guías) y scripts de alta definitivos | 🟡 listo; falta ver andar en Actions el job de tests de seguridad |
 | 9 | Alta de la primera familia real | pendiente |
 
 Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que todo nazca con `familia_id`.
 
 ## Pendientes de definir
 
-- **Tests de seguridad en GitHub Actions** además de a mano en el SQL Editor (propuesta: sí, levantando Supabase
-  local en el runner, que tiene Docker; agrega ~2–3 min por push).
 
 ## Glosario de decisiones
 
@@ -437,6 +438,9 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | I3 | Dónde oculta el superadmin | Administración, un tilde por importador |
 | I4 | Excel histórico | Un importador más, que se puede ocultar |
 | I5 | Dummy | Prueba con `excel` y `provincia` ocultos |
+| E1 | Documentación | README + Guía de uso (familias) + Guía de soporte (superadmin, nueva) + Instalación y operación (técnica) + este documento (decisiones) |
+| E2 | Scripts definitivos | Se suman `baja_miembro.sql` y `estado.sql`. Borrar una familia entera: sin script por ahora (irreversible; con backup antes, cuando haga falta) |
+| E3 | Tests de seguridad en GitHub Actions | Sí: job `seguridad-db` con Supabase local; bloquea la publicación si falla |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

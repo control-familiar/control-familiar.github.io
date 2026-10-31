@@ -1,6 +1,6 @@
-# Guía de uso — Control Económico
+# Guía de uso — Control Económico Familiar
 
-App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyección de ahorro, USDT, dólares y más. Los datos viven en una base compartida (Supabase): todas las personas con usuario ven y editan la misma información.
+App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyección de ahorro, USDT, dólares y más. Los datos son **de tu familia**: todos los usuarios de la familia ven y editan la misma información, y nadie de otra familia la ve. El **soporte** (la cuenta que administra la app) puede verla en solo lectura para ayudarte, y es quien activa funciones o da de alta usuarios.
 
 ## Índice
 1. [Primeros pasos](#1-primeros-pasos)
@@ -22,7 +22,7 @@ App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyecc
 
 ## 1. Primeros pasos
 
-- **Ingreso:** abrí la app, escribí email y contraseña y tocá **Iniciar sesión**. No hay registro público: los usuarios los da de alta el administrador en Supabase.
+- **Ingreso:** abrí la app, escribí email y contraseña y tocá **Iniciar sesión**. No hay registro público: los usuarios los da de alta el soporte.
 - **Menú de cuenta** (círculo con tus iniciales, arriba a la derecha): elegí el **color del tema** (verde, azul, naranja), **modo claro/oscuro** y **Cerrar sesión**. Las preferencias quedan guardadas en el navegador.
 - **Celular:** el menú lateral se abre con el botón de hamburguesa (☰). Al lado hay un acceso rápido a **Cargar efectivo**.
 - **Botón “+ Movimiento”** (arriba del menú lateral): abre el alta de un movimiento desde cualquier pestaña.
@@ -160,14 +160,7 @@ Para compras y ventas de dólares y algún ingreso/gasto en USD.
 
 ## 13. Backups
 
-Los backups los maneja **el soporte** (la cuenta superadmin), desde la pestaña **Administración**, que solo ve esa cuenta:
-
-- **Descargar backup completo (.json):** exporta todas las familias (familias, miembros y sus datos).
-- **Restaurar una familia:** se elige un `.json` descargado de ahí (o uno de los backups diarios de Drive) y la familia a restaurar; las demás no se tocan. **No borra** lo existente: agrega lo que falta y actualiza lo que coincide. Es todo o nada: si algo no cierra, no se aplica ninguna fila.
-
-El soporte ve los datos de todas las familias **en solo lectura**, eligiendo cuál mirar con el selector de arriba.
-
-Además existe un **backup automático diario a Google Drive** (ver [INSTALACION-Y-OPERACION.md](INSTALACION-Y-OPERACION.md#backup-diario-a-google-drive)).
+Los backups los hace **el soporte**: si necesitás recuperar algo, pedíselo. Restaura los datos de tu familia sin borrar nada de lo que ya tenés ni tocar a las demás familias (ver [GUIA-DE-SOPORTE.md](GUIA-DE-SOPORTE.md#5-backups-y-restauración)).
 
 ## 14. Preguntas frecuentes
 
@@ -179,4 +172,12 @@ Además existe un **backup automático diario a Google Drive** (ver [INSTALACION
 
 **Un gasto no aparece en Resumen.** Revisá el tratamiento de su categoría: TEC, Solo control, Inversión y Sueldo se excluyen o se muestran aparte.
 
-**No puedo iniciar sesión.** Pedí al administrador que cree o resetee tu usuario en Supabase.
+**No puedo iniciar sesión.** Pedile al soporte que cree tu usuario o te resetee la contraseña.
+
+**Entro y me dice que mi usuario no está asignado a ninguna familia.** El soporte todavía no te sumó a tu familia: pedíselo.
+
+**No veo una pestaña (USDT, Dólares, Flujo de Caja), el botón Facturar o los campos de tarjeta.** Son funciones opcionales que activa el soporte para cada familia.
+
+**En Importar no está mi banco.** Pedíselo al soporte: puede estar oculto para tu familia, o hay que agregarlo a la app.
+
+**El sueldo aparece en el mes equivocado en el Resumen.** Si se acredita unos días antes de fin de mes, el soporte puede configurar que esos días cuenten para el mes siguiente.
