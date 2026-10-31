@@ -29,10 +29,13 @@ create table familias (
 
 -- Un usuario pertenece a UNA sola familia (por eso user_id es la PK).
 -- Cambiar a alguien de familia = cambiar su fila; lo que cargó queda en la familia anterior.
+-- nombre: cómo se lo muestra en la app (titular de los centros, D5); se carga con alta_miembro.sql.
 create table miembros (
   user_id uuid primary key references auth.users(id) on delete cascade,
   familia_id uuid not null references familias(id) on delete restrict,
-  created_at timestamptz default now()
+  nombre text not null,
+  created_at timestamptz default now(),
+  unique (familia_id, user_id)  -- para la FK compuesta de centros.titular_id
 );
 
 -- Cuentas de soporte: no pertenecen a ninguna familia, ven todas en solo lectura.
@@ -96,8 +99,12 @@ create table centros (
   color_texto text,  -- color de texto del chip (opcional); si es null, se calcula el contraste automático
   entidad text,  -- banco/billetera para el logo en Saldos: 'santander' | 'nacion' | 'provincia' | 'icbc' | 'mercadopago' | null
   moneda text not null default 'ARS' check (moneda in ('ARS','USD','AMBAS')),  -- 'AMBAS': la cuenta tiene un saldo en pesos y otro en dólares
+  titular_id uuid,  -- usuario de la familia titular de la cuenta (D5); null = sin titular
   created_at timestamptz default now(),
-  unique (familia_id, id)
+  unique (familia_id, id),
+  -- Si el usuario deja de ser miembro, el centro queda sin titular. Para cambiarlo de familia,
+  -- alta_miembro.sql primero saca su titularidad (la FK no deja que apunte a otra familia).
+  foreign key (familia_id, titular_id) references miembros(familia_id, user_id) on delete set null (titular_id)
 );
 
 -- Categorías
@@ -105,12 +112,15 @@ create table categorias (
   id uuid primary key default gen_random_uuid(),
   familia_id uuid not null default familia_actual() references familias(id) on delete restrict,
   nombre text not null,
-  tipo text,  -- tratamiento en reportes: null (normal) | 'tec' | 'inversion' | 'sueldo' | 'control'
+  tipo text,  -- tratamiento en reportes: null (normal) | 'tec' | 'inversion' | 'sueldo' | 'control' | 'venta_usdt'
   color text,  -- color de fondo del chip en Movimientos y ABM, ej: '#D97B6C'
   color_texto text,  -- color de texto del chip (opcional); si es null, se calcula el contraste automático
   created_at timestamptz default now(),
   unique (familia_id, id)
 );
+
+-- Una sola categoría de Venta de USDT por familia: la app manda ahí sola los pesos de cada venta.
+create unique index categorias_una_venta_usdt on categorias (familia_id) where tipo = 'venta_usdt';
 
 -- Subcategorías
 create table subcategorias (
@@ -381,8 +391,9 @@ alter table reglas_categorizacion enable row level security;
 -- familias, miembros, superadmins: solo lectura desde la app (las altas son por script).
 create policy leer on familias for select to authenticated
   using (id = (select familia_actual()) or (select es_superadmin()));
+-- Cada miembro ve a los de su familia (para elegir titular de un centro, D5).
 create policy leer on miembros for select to authenticated
-  using (user_id = (select auth.uid()) or (select es_superadmin()));
+  using (familia_id = (select familia_actual()) or (select es_superadmin()));
 create policy leer on superadmins for select to authenticated
   using (user_id = (select auth.uid()));
 
@@ -436,7 +447,7 @@ create policy todo on arca_ta for all to authenticated
 
 -- Miembros de todas las familias con su email (la app no puede leer auth.users).
 create function admin_miembros()
-  returns table (user_id uuid, email text, familia_id uuid, familia text, created_at timestamptz)
+  returns table (user_id uuid, email text, nombre text, familia_id uuid, familia text, created_at timestamptz)
   language plpgsql stable security definer set search_path = ''
 as $$
 begin
@@ -444,7 +455,7 @@ begin
     raise exception 'Solo el superadmin puede ver los miembros' using errcode = '42501';
   end if;
   return query
-    select m.user_id, u.email::text, m.familia_id, f.nombre, m.created_at
+    select m.user_id, u.email::text, m.nombre, m.familia_id, f.nombre, m.created_at
     from public.miembros m
     join auth.users u on u.id = m.user_id
     join public.familias f on f.id = m.familia_id
@@ -510,6 +521,18 @@ begin
   foreach t in array tablas loop
     filas := coalesce(p_datos -> t, '[]');
     continue when jsonb_array_length(filas) = 0;
+
+    -- Un centro cuyo titular ya no es miembro de esta familia vuelve sin titular (los miembros no se
+    -- restauran: dependen de los usuarios de Auth).
+    if t = 'centros' then
+      select jsonb_agg(case
+               when e ->> 'titular_id' is not null and not exists (
+                 select 1 from public.miembros m where m.user_id = (e ->> 'titular_id')::uuid and m.familia_id = p_familia_id)
+               then jsonb_set(e, '{titular_id}', 'null'::jsonb)
+               else e end)
+        into filas
+      from jsonb_array_elements(filas) e;
+    end if;
 
     -- Solo las columnas que trae el backup: si es anterior a una columna nueva, esa toma su default.
     select string_agg(quote_ident(a.attname), ', ' order by a.attnum),

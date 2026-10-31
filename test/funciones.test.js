@@ -175,7 +175,7 @@ describe('Facturación ARCA: faltan datos del emisor (D8)', () => {
     seedBase(win);
     sbMock = mockSb();
     win.sb = sbMock.client;
-    win.STATE.categorias.push({ id: 'cat-vu', nombre: 'Venta USDT' });
+    win.STATE.categorias.push({ id: 'cat-vu', nombre: 'Venta USDT', tipo: 'venta_usdt' });
     win.STATE.movimientos = [{ id: 'mv', fecha: '2026-10-01', centroId: 'c-ef', categoriaId: 'cat-vu', ingreso: 50000, egreso: 0, moneda: 'ARS' }];
     win.STATE.facturas = [];
   });

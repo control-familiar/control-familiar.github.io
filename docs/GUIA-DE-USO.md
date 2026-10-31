@@ -31,7 +31,7 @@ App web para llevar ingresos y egresos, vencimientos, saldos por cuenta, proyecc
 
 | Concepto | Qué es |
 |---|---|
-| **Centro de Costo (CC)** | Una cuenta o “bolsillo” de plata: banco, billetera, tarjeta, efectivo. Tiene código corto (ej. `MPF`), nombre, color, entidad (para el logo) y moneda. |
+| **Centro de Costo (CC)** | Una cuenta o “bolsillo” de plata: banco, billetera, tarjeta, efectivo. Tiene código corto (ej. `MPF`), nombre, color, entidad (para el logo), moneda y titular (un usuario de la familia, o ninguno). |
 | **Categoría / Subcategoría** | Clasificación del gasto o ingreso (Alimentos › Super). |
 | **Movimiento** | Un ingreso o un egreso en un CC, con fecha, contraparte (proveedor, cliente, banco, persona…), detalle y monto. |
 | **Fecha futura** | Un movimiento con fecha posterior a hoy es *pendiente*: se gestiona en **Vencimientos**, no cuenta en Saldos y pasa solo a Movimientos cuando llega su fecha. |
@@ -47,6 +47,7 @@ Al crear una categoría elegís su **Tratamiento en reportes**. Es la decisión 
 | **Inversión** | Gastos grandes que dejan valor (ej. Obra) | Se muestra aparte en Resumen y no resta de la capacidad de ahorro. |
 | **Sueldo** | Tu ingreso fijo | Es el “Total ingresos” de Resumen y la base de la capacidad de ahorro. |
 | **Solo control** | Movimientos que querés registrar pero no son ingreso/gasto tuyo | No cuenta en reportes, pero sí mueve el saldo de la cuenta. |
+| **Venta de USDT** | Adonde van los pesos de cada venta de USDT (solo con USDT activado; una sola) | No cuenta como ingreso: la plata ya entró como USDT. |
 
 **Transferencias entre cuentas (TEC):** son dos movimientos (egreso en una cuenta, ingreso en la otra) con categoría TEC. Al filtrar Movimientos por TEC el total debe dar **$0,00**; si no, falta alguna punta.
 
@@ -84,7 +85,7 @@ Tocá **+ Movimiento**. Campos principales: Fecha, Centro de Costo, Tipo (ingres
 - **Tarjeta:** *Marca de tarjeta* y *Fecha de consumo* son opcionales.
 
 ### Cargar efectivo (rápido)
-El botón **Cargar efectivo** (💵; en el celular está en la barra superior) abre un formulario corto: fecha, CC, ingreso/egreso, monto, contraparte y detalle. Categoría y subcategoría pueden completarse después. Preselecciona tu CC de efectivo según tu usuario.
+El botón **Cargar efectivo** (💵; en el celular está en la barra superior) abre un formulario corto: fecha, CC, ingreso/egreso, monto, contraparte y detalle. Categoría y subcategoría pueden completarse después. Preselecciona el último CC que usaste para cargar efectivo en ese dispositivo.
 
 ### Listado de Movimientos
 - **Filtros:** búsqueda por texto y filtros múltiples (tildás varias opciones) de Centro, Categoría, Subcategoría y Mes. *Solo incompletos* muestra los que no tienen categoría; *Solo tarjeta* los de tarjeta. **Limpiar filtros** los reinicia.
@@ -126,7 +127,7 @@ En **Resumen** aparece un aviso con los vencimientos próximos.
 
 ## 9. Saldos
 
-Muestra el saldo real de cada Centro de Costo: parte del “Saldo Inicial” y suma/resta **todos** los movimientos (incluso TEC, Inversión y Solo control). Se recalcula con cada movimiento nuevo; **Recalcular** trae cambios hechos desde otra sesión. Desde una cuenta se puede saltar a sus movimientos. Debajo se muestran los saldos en dólares y la tenencia de USDT (aparte del total en pesos).
+Muestra el saldo real de cada Centro de Costo: parte del “Saldo Inicial” y suma/resta **todos** los movimientos (incluso TEC, Inversión y Solo control). Se recalcula con cada movimiento nuevo; **Recalcular** trae cambios hechos desde otra sesión. Las cuentas se agrupan por titular, y al final "Sin titular". Desde una cuenta se puede saltar a sus movimientos. Debajo se muestran los saldos en dólares y la tenencia de USDT (aparte del total en pesos).
 
 ## 10. Flujo de Caja y deudas
 
@@ -141,8 +142,8 @@ Proyecta tu ahorro acumulado a futuro.
 
 Registra tu tenencia de USDT.
 
-- **Ingreso:** cantidad de USDT recibida (con datos opcionales).
-- **Venta:** indicás cuántos USDT vendiste y cuántos pesos recibiste; la app **resta de la tenencia y crea sola el ingreso en pesos** en Movimientos (categoría Venta USDT). No hay que cargarlo dos veces.
+- **Ingreso:** cantidad de USDT recibida (con datos opcionales). Cuenta como sueldo en Resumen y Flujo de Caja solo si le ponés una categoría de tipo Sueldo.
+- **Venta:** indicás cuántos USDT vendiste y cuántos pesos recibiste; la app **resta de la tenencia y crea sola el ingreso en pesos** en Movimientos, en la categoría de tipo *Venta de USDT*. No hay que cargarlo dos veces.
 - **Desde un movimiento existente:** si ya tenés el ingreso en pesos, usá “Generar movimiento USDT” sobre ese movimiento e indicá cuántos USDT eran; la app calcula la cotización.
 - **Cotización:** botón para actualizarla; se usa para valuar la tenencia en pesos.
 - **Facturación ARCA:** en Movimientos, las ventas de USDT tienen un botón para emitir una **Factura C a Consumidor Final** ante ARCA. Antes de emitir valida que no se supere el tope de facturación de tu categoría de Monotributo (acumulado de los últimos 12 meses). Una vez emitida podés ver el comprobante. Requiere la configuración descripta en [INSTALACION-Y-OPERACION.md](INSTALACION-Y-OPERACION.md#facturación-arca).

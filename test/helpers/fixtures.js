@@ -15,13 +15,20 @@ export function prenderTodo(win) {
   return win.STATE;
 }
 
+/** Total de Saldos (pesos o USD) del grupo de un titular, por su nombre ("Sin titular" para el resto). */
+export function totalDeGrupo(saldos, titulo) {
+  const g = saldos.grupos.find(x => x.titulo === titulo);
+  return g ? g.total : 0;
+}
+
 /** Datos base compartidos entre los tests de UI: dos centros, categorías normales + una TEC, subcategorías. */
 export function seedBase(win) {
   prenderTodo(win);
   win.STATE.centros = [
-    { id: 'c-ef', codigo: 'EF', nombre: 'Efectivo Franco' },
-    { id: 'c-ea', codigo: 'EA', nombre: 'Efectivo Ana' }
+    { id: 'c-ef', codigo: 'EF', nombre: 'Efectivo Franco', titularId: 'u-franco' },
+    { id: 'c-ea', codigo: 'EA', nombre: 'Efectivo Ana', titularId: 'u-ana' }
   ];
+  win.STATE.miembrosFamilia = [{ userId: 'u-ana', nombre: 'Ana' }, { userId: 'u-franco', nombre: 'Franco' }];
   win.STATE.categorias = [
     { id: 'cat-super', nombre: 'Supermercado', tipo: 'normal' },
     { id: 'cat-suel', nombre: 'Sueldo', tipo: 'sueldo' },

@@ -21,7 +21,7 @@ Guía para quien administra la app: levantar una base nueva, publicar, dar usuar
 - En Supabase: **Authentication → Users → Add user** (email y contraseña) para cada persona.
 - Asignar cada usuario a su familia con [`scripts/sql/alta_miembro.sql`](../scripts/sql/alta_miembro.sql): un usuario que no es miembro de ninguna familia entra y no ve nada.
 - **Deshabilitar el signup público** (Authentication → Settings). Una cuenta sin familia no ve datos, pero no tiene sentido dejar que cualquiera se cree una.
-- El CC de efectivo por defecto se resuelve por email (`codigoCentroPorUsuario` en `app.js`); para usuarios nuevos hay que agregarlos ahí (pasa a la base en la fase 3, ver [MULTI-FAMILIA.md](MULTI-FAMILIA.md)).
+- En `alta_miembro.sql` se carga también el **nombre** con el que se ve a cada usuario (por ejemplo, como titular de un Centro de Costo).
 
 ## 3. Publicación (GitHub Pages)
 

@@ -29,6 +29,7 @@ declare
   ok text[] := '{}';
 
   ua uuid := gen_random_uuid();  -- miembro de A
+  ua2 uuid := gen_random_uuid(); -- otro miembro de A
   ub uuid := gen_random_uuid();  -- miembro de B
   us uuid := gen_random_uuid();  -- superadmin
   un uuid := gen_random_uuid();  -- logueado sin familia
@@ -44,13 +45,14 @@ begin
     -- ---------- Datos de prueba (como postgres) ----------
     insert into auth.users (id, email, aud, role) values
       (ua, 'test-a@tests.invalid',  'authenticated', 'authenticated'),
+      (ua2, 'test-a2@tests.invalid', 'authenticated', 'authenticated'),
       (ub, 'test-b@tests.invalid',  'authenticated', 'authenticated'),
       (us, 'test-sa@tests.invalid', 'authenticated', 'authenticated'),
       (un, 'test-sf@tests.invalid', 'authenticated', 'authenticated');
 
     insert into public.familias (nombre) values ('__test A__') returning id into fa;
     insert into public.familias (nombre) values ('__test B__') returning id into fb;
-    insert into public.miembros (user_id, familia_id) values (ua, fa), (ub, fb);
+    insert into public.miembros (user_id, familia_id, nombre) values (ua, fa, 'A uno'), (ua2, fa, 'A dos'), (ub, fb, 'B uno');
     insert into public.superadmins (user_id) values (us);
 
     insert into public.centros (familia_id, codigo, nombre) values (fa, 'A1', 'Centro A') returning id into cen_a;
@@ -91,7 +93,7 @@ begin
       if sqlerrm like 'FALLA%' then raise; end if;
     end;
     begin
-      insert into public.miembros (user_id, familia_id) values (us, fa);
+      insert into public.miembros (user_id, familia_id, nombre) values (us, fa, 'Soporte');
       raise exception 'FALLA: un superadmin pudo ser miembro';
     exception when raise_exception then
       if sqlerrm like 'FALLA%' then raise; end if;
@@ -116,11 +118,27 @@ begin
 
     select count(*) into n from public.familias;
     if n <> 1 then raise exception 'FALLA: A ve % familias (debería ver 1)', n; end if;
-    select count(*) into n from public.miembros;
-    if n <> 1 then raise exception 'FALLA: A ve % filas de miembros (debería ver la suya)', n; end if;
+    select count(*) into n from public.miembros where familia_id = fa;
+    if n <> 2 then raise exception 'FALLA: A ve % miembros de su familia (debería ver 2)', n; end if;
+    select count(*) into n from public.miembros where familia_id <> fa;
+    if n <> 0 then raise exception 'FALLA: A ve % miembros de otra familia', n; end if;
     select count(*) into n from public.superadmins;
     if n <> 0 then raise exception 'FALLA: A ve superadmins'; end if;
-    ok := array_append(ok, 'A: ve solo su familia, su fila de miembros y ningún superadmin');
+    ok := array_append(ok, 'A: ve solo su familia, sus miembros y ningún superadmin');
+
+    -- Titular de un centro (D5): solo un miembro de la misma familia
+    update public.centros set titular_id = ua2 where id = cen_a;
+    begin
+      update public.centros set titular_id = ub where id = cen_a;
+      raise exception 'FALLA: un centro de A tiene como titular a un miembro de B';
+    exception when foreign_key_violation then null;
+    end;
+    begin
+      update public.centros set titular_id = un where id = cen_a;
+      raise exception 'FALLA: un centro de A tiene como titular a alguien sin familia';
+    exception when foreign_key_violation then null;
+    end;
+    ok := array_append(ok, 'A: el titular de un centro es un miembro de su familia, nunca de otra');
 
     foreach t in array tablas loop
       execute format('update public.%I set familia_id = familia_id where familia_id = $1', t) using fb;
@@ -243,6 +261,15 @@ begin
     end if;
     ok := array_append(ok, 'A: config_valor() da su valor o el default, nunca el de otra familia');
 
+    -- Una sola categoría de Venta de USDT por familia (B puede tener la suya)
+    insert into public.categorias (nombre, tipo) values ('Venta A', 'venta_usdt');
+    begin
+      insert into public.categorias (nombre, tipo) values ('Otra venta A', 'venta_usdt');
+      raise exception 'FALLA: A tiene dos categorías de Venta de USDT';
+    exception when unique_violation then null;
+    end;
+    ok := array_append(ok, 'A: una sola categoría de Venta de USDT por familia');
+
     -- arca_ta: upsert como la Edge Function (sin mandar familia_id)
     insert into public.arca_ta (ambiente, token, sign, expira_en)
       values ('homologacion', 'token A2', 'sign A2', now() + interval '2 hours')
@@ -255,7 +282,7 @@ begin
 
     -- familias / miembros / superadmins: nadie escribe desde la app
     begin
-      insert into public.miembros (user_id, familia_id) values (un, fa);
+      insert into public.miembros (user_id, familia_id, nombre) values (un, fa, 'Intruso');
       raise exception 'FALLA: A agregó un miembro a su familia';
     exception when insufficient_privilege then null;
     end;
@@ -442,12 +469,17 @@ begin
     -- familia borrada: la vuelve a crear con el mismo id y nombre
     perform public.restaurar_familia(fc, jsonb_build_object(
       'familia', jsonb_build_object('id', fc, 'nombre', '__test C__'),
-      'categorias', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'nombre', 'Cat C'))));
+      'categorias', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'nombre', 'Cat C')),
+      -- su titular no es miembro de C: el centro vuelve sin titular en vez de fallar
+      'centros', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'codigo', 'C1', 'nombre', 'Centro C', 'titular_id', ua))));
     if not exists (select 1 from public.familias where id = fc and nombre = '__test C__')
        or not exists (select 1 from public.categorias where familia_id = fc) then
       raise exception 'FALLA: restaurar_familia() no recreó la familia borrada';
     end if;
-    ok := array_append(ok, 'superadmin: restaurar_familia() recrea una familia que ya no existe');
+    if not exists (select 1 from public.centros where familia_id = fc and codigo = 'C1' and titular_id is null) then
+      raise exception 'FALLA: restaurar_familia() no dejó sin titular un centro cuyo titular no es de la familia';
+    end if;
+    ok := array_append(ok, 'superadmin: restaurar_familia() recrea una familia que ya no existe (centros sin titular si el titular no es miembro)');
 
     reset role;
 

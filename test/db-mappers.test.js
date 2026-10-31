@@ -9,7 +9,7 @@ beforeEach(() => { win = loadApp(); });
 
 describe('centro', () => {
   it('toDbCentro -> fromDbCentro conserva los datos', () => {
-    const centro = { id: 'c1', codigo: 'EF', nombre: 'Efectivo Franco', color: '#4E9D77', colorTexto: '#fff', entidad: 'santander', moneda: 'AMBAS' };
+    const centro = { id: 'c1', codigo: 'EF', nombre: 'Efectivo Franco', color: '#4E9D77', colorTexto: '#fff', entidad: 'santander', moneda: 'AMBAS', titularId: 'u1' };
     expect(win.fromDbCentro(win.toDbCentro(centro))).toEqual(centro);
   });
   it('color/colorTexto/entidad ausentes se guardan como null y vuelven como string vacío', () => {
@@ -17,7 +17,8 @@ describe('centro', () => {
     expect(row.color).toBeNull();
     expect(row.color_texto).toBeNull();
     expect(row.entidad).toBeNull();
-    expect(win.fromDbCentro(row)).toEqual({ id: 'c1', codigo: 'EF', nombre: 'Efectivo Franco', color: '', colorTexto: '', entidad: '', moneda: 'ARS' });
+    expect(row.titular_id).toBeNull();
+    expect(win.fromDbCentro(row)).toEqual({ id: 'c1', codigo: 'EF', nombre: 'Efectivo Franco', color: '', colorTexto: '', entidad: '', moneda: 'ARS', titularId: '' });
   });
   it('la moneda solo se manda cuando no es pesos (anda aunque falte migracion_dolares.sql)', () => {
     expect(win.toDbCentro({ id: 'c1', codigo: 'EF', nombre: 'Efectivo Franco', moneda: 'ARS' })).not.toHaveProperty('moneda');

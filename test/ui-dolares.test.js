@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { loadApp } from './helpers/loadApp.js';
-import { seedBase } from './helpers/fixtures.js';
+import { seedBase, totalDeGrupo } from './helpers/fixtures.js';
 import { mockSb } from './helpers/mockSb.js';
 
 // Módulo Dólares: los movimientos en USD van a la misma tabla "movimientos" (moneda 'USD') pero
@@ -9,7 +9,7 @@ import { mockSb } from './helpers/mockSb.js';
 function seedDolares(win) {
   seedBase(win);
   win.STATE.centros.find(c => c.id === 'c-ef').moneda = 'AMBAS'; // Franco: misma cuenta, pesos y dólares
-  win.STATE.centros.push({ id: 'c-da', codigo: 'DA', nombre: 'Dólares Ana', moneda: 'USD' }); // Ana: CC solo en USD
+  win.STATE.centros.push({ id: 'c-da', codigo: 'DA', nombre: 'Dólares Ana', moneda: 'USD', titularId: 'u-ana' }); // Ana: CC solo en USD
   win.STATE.categorias.push({ id: 'cat-inv', nombre: 'Ahorro', tipo: 'inversion' });
   win.STATE.movimientosUsd = [];
 }
@@ -47,8 +47,8 @@ describe('Dólares', () => {
     const inserts = sbMock.calls.filter(c => c.op === 'insert');
     expect(inserts.map(c => c.rows.moneda)).toEqual(['USD', undefined]);
 
-    expect(win.calcularSaldosUsd().totalAna).toBe(100);
-    expect(win.calcularSaldos().totalFranco).toBe(-130000); // los pesos sí salen del CC en pesos
+    expect(totalDeGrupo(win.calcularSaldosUsd(), 'Ana')).toBe(100);
+    expect(totalDeGrupo(win.calcularSaldos(), 'Franco')).toBe(-130000); // los pesos sí salen del CC en pesos
   });
 
   it('pide pesos, CC en pesos y categoría para una compra', async () => {
@@ -70,7 +70,7 @@ describe('Dólares', () => {
     await win.handleAction('save-dolares', '');
     expect(win.STATE.movimientosUsd[0]).toMatchObject({ egreso: 20, cambioId: '' });
     expect(win.STATE.movimientos).toHaveLength(0);
-    expect(win.calcularSaldosUsd().totalFranco).toBe(-20);
+    expect(totalDeGrupo(win.calcularSaldosUsd(), 'Franco')).toBe(-20);
   });
 
   it('una TEC en dólares con CC destino crea el espejo en USD, sin nada en pesos', async () => {
@@ -84,8 +84,8 @@ describe('Dólares', () => {
     expect(win.STATE.movimientosUsd).toHaveLength(2);
     expect(win.STATE.movimientosUsd[1]).toMatchObject({ centroId: 'c-da', ingreso: 50, egreso: 0, categoriaId: 'cat-tec', moneda: 'USD' });
     expect(win.STATE.movimientos).toHaveLength(0);
-    expect(win.calcularSaldosUsd().totalFranco).toBe(-50);
-    expect(win.calcularSaldosUsd().totalAna).toBe(50);
+    expect(totalDeGrupo(win.calcularSaldosUsd(), 'Franco')).toBe(-50);
+    expect(totalDeGrupo(win.calcularSaldosUsd(), 'Ana')).toBe(50);
   });
 
   it('el tipo Transferencia entre cuentas crea gasto en origen e ingreso en destino con la categoría TEC', async () => {

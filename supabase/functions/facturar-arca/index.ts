@@ -318,7 +318,7 @@ Deno.serve(async (req) => {
     const { data: limiteCfg } = await sb.rpc("config_valor", { p_clave: "monotributo_limite_categoria_b" });
     const limite = Number(limiteCfg) || 0;
     if (limite > 0 && acumulado + importe > limite) {
-      const mensaje = `Esto te haría superar el límite de categoría B: $${(acumulado + importe).toFixed(2)} de $${limite.toFixed(2)} (acumulado 12 meses: $${acumulado.toFixed(2)})`;
+      const mensaje = `Esto te haría superar el tope de tu categoría de Monotributo: $${(acumulado + importe).toFixed(2)} de $${limite.toFixed(2)} (acumulado 12 meses: $${acumulado.toFixed(2)})`;
       const { data: filaError } = await sb.from("facturas").insert({
         movimiento_id: movimientoId, fecha: hoy, tipo_comprobante: tipoComprobante, punto_venta: puntoVenta,
         importe, estado: "error", error: mensaje, ambiente,

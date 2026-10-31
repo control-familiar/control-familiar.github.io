@@ -57,31 +57,34 @@ describe('calcularSaldos', () => {
   beforeEach(() => {
     restoreNow = mockNow(win, new win.Date(2026, 7, 9)); // hoy = 2026-08-09
     win.STATE.centros = [
-      { id: 'cA', codigo: 'EA', nombre: 'Efectivo Ana' },
-      { id: 'cF', codigo: 'EF', nombre: 'Efectivo Franco' },
+      { id: 'cA', codigo: 'EA', nombre: 'Efectivo Ana', titularId: 'u-ana' },
+      { id: 'cF', codigo: 'EF', nombre: 'Efectivo Franco', titularId: 'u-franco' },
       { id: 'cX', codigo: 'CX', nombre: 'Cuenta Compartida' },
+      { id: 'cY', codigo: 'XA', nombre: 'De alguien que ya no está', titularId: 'u-se-fue' },
     ];
+    win.STATE.miembrosFamilia = [{ userId: 'u-franco', nombre: 'Franco' }, { userId: 'u-ana', nombre: 'Ana' }];
   });
   afterEach(() => { restoreNow(); });
 
-  it('suma ingresos y resta egresos por centro, agrupando por titular según el sufijo del código', () => {
+  it('suma ingresos y resta egresos por centro, agrupando por titular (un usuario de la familia) y "Sin titular"', () => {
     win.STATE.movimientos = [
       { fecha: '2026-08-01', centroId: 'cA', ingreso: 1000, egreso: 0 },
       { fecha: '2026-08-02', centroId: 'cA', ingreso: 0, egreso: 300 },
       { fecha: '2026-08-01', centroId: 'cF', ingreso: 500, egreso: 0 },
       { fecha: '2026-08-01', centroId: 'cX', ingreso: 200, egreso: 0 },
+      { fecha: '2026-08-01', centroId: 'cY', ingreso: 10, egreso: 0 },
       { fecha: '2026-08-01', centroId: null, ingreso: 50, egreso: 0 }, // sin centro asignado
     ];
     const s = win.calcularSaldos();
     expect(s.filas.find(function(f){ return f.id === 'cA'; }).saldo).toBe(700);
     expect(s.filas.find(function(f){ return f.id === 'cF'; }).saldo).toBe(500);
     expect(s.filas.find(function(f){ return f.id === 'cX'; }).saldo).toBe(200);
-    expect(s.totalAna).toBe(700);
-    expect(s.totalFranco).toBe(500);
     expect(s.saldoSinCentro).toBe(50);
-    expect(s.hayOtros).toBe(true);
-    expect(s.totalOtros).toBe(250); // cX (titular "Otros", código no termina en A/F) + sinCentro
-    expect(s.totalGeneral).toBe(1450);
+    // un grupo por titular, ordenado por nombre; "Sin titular" al final con cX, cY (su titular ya no es
+    // de la familia) y lo que no tiene centro. El código del centro ya no dice nada del titular.
+    expect(s.grupos.map(g => [g.titulo, g.total])).toEqual([['Ana', 700], ['Franco', 500], ['Sin titular', 260]]);
+    expect(s.grupos[2].filas.map(f => f.id)).toEqual(['cX', 'cY']);
+    expect(s.totalGeneral).toBe(1460);
   });
 
   it('ignora movimientos con fecha futura (pendientes) para el cálculo del saldo', () => {

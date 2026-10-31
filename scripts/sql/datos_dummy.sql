@@ -39,7 +39,8 @@ from familias f, (values
   ('Casa',        null,        '#A57FC2'),
   ('Auto',        null,        '#5FA8A8'),
   ('Salida',      null,        '#E07FA8'),
-  ('Inversiones', 'inversion', '#8C8C8C')
+  ('Inversiones', 'inversion', '#8C8C8C'),
+  ('Venta USDT',  'venta_usdt', '#C9A227')
 ) as c(nombre, tipo, color)
 where f.nombre = 'Familia Demo';
 

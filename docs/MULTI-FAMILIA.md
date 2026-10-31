@@ -118,12 +118,22 @@ Toda configuración personal está asociada a la familia y documentada en la pro
 - La familia **no ve** su configuración en el ABM (C1): la ve y la edita solo el superadmin. La app sí la lee
   para funcionar (ej. el CUIT para facturar).
 
-## Personas y titulares (D5)
+## Titulares de los centros (D5)
 
-- `personas (familia_id, nombre, user_id opcional)`.
-- `centros.titular_id` → `personas`. Reemplaza la convención del original (el titular salía de la última letra
-  del código del centro: `…A` = Ana, `…F` = Franco).
-- Nada de nombres de personas escritos en el código.
+- **El titular de cada centro es un usuario de la familia** (no hay tabla `personas`): `centros.titular_id` →
+  `miembros`, con FK compuesta `(familia_id, titular_id)`. Reemplaza la convención del original (el titular salía
+  de la última letra del código del centro: `…A` = Ana, `…F` = Franco).
+- Cada usuario se muestra con `miembros.nombre`, que se carga en `alta_miembro.sql` (T1; vacío = lo que va antes de la
+  @). Para cambiarlo, se corre el script de nuevo.
+- Cada miembro **ve a los miembros de su familia** (su nombre, no su email), para elegir titular.
+- La familia elige el titular en el ABM de centros ("Sin titular" es válido). Saldos (pesos y USD) agrupa por titular
+  (por nombre) y al final "Sin titular", con los centros sin titular y lo que no tiene centro.
+- Si un usuario deja de ser miembro, sus centros quedan sin titular. Al **cambiarlo de familia**, `alta_miembro.sql` le
+  saca primero la titularidad de los centros de la familia anterior (la FK no deja que apunte a otra) y lo avisa.
+- Al restaurar un backup, un centro cuyo titular no es miembro de esa familia vuelve sin titular.
+- **Centro de efectivo por defecto** (R5): el último que se usó para cargar efectivo en ese dispositivo
+  (`localStorage`); antes salía del email.
+- Nada de nombres de personas ni emails escritos en el código.
 
 ## Reglas que hoy están escritas en el código (D6)
 
@@ -132,6 +142,23 @@ Toda configuración personal está asociada a la familia y documentada en la pro
 - Las reglas con números fijos (ej. "los últimos 3 días del mes el sueldo cuenta para el mes siguiente") pasan
   a configuración de la familia.
 - Antes de cambiarlas se hace un **relevamiento completo** de todas estas reglas y se decide una por una.
+
+Relevamiento (fase 6) y lo que se decidió:
+
+| | Regla del original | Decisión |
+|---|---|---|
+| R1 | "Venta USDT" se reconocía por el nombre de la categoría (o de una subcategoría) | Tipo de categoría `venta_usdt` ("Venta de USDT"), que se ofrece en el ABM solo con USDT prendido. **Una sola por familia** (la base lo impide). Sin compatibilidad con la subcategoría |
+| R2 | Todo ingreso de USDT contaba como Sueldo ("el sueldo de Ani") | Cuenta como sueldo solo si su categoría es de tipo Sueldo |
+| R3 | "Categoría B" de Monotributo en los textos | Textos genéricos ("el tope de tu categoría de Monotributo"); la clave conserva su nombre |
+| R4 | Centro por defecto al importar, por códigos `MPF`/`BSF`/`BNF`/`BPF` | Queda siempre vacío: lo elige quien importa |
+| R5 | Centro de efectivo por defecto según el email | El último usado en ese dispositivo (fase 3) |
+| R6 | Titular del centro según la última letra del código | Usuario titular (fase 3, D5) |
+| R7 | Colores de vencimientos según días que faltan | Queda (diseño) |
+| R8 | Ventana de 12 meses del Monotributo | Queda (normativa) |
+| R9 | Logo del banco adivinado por el nombre del centro | Queda (genérico) |
+| R10 | CUIT de ARCA en los secrets de la Edge Function | Queda (D8) |
+| R11 | Los ingresos de proveedor "Gerardo" en Sueldo no contaban como sueldo | Se sacó: esos ingresos van a una categoría que no sea de tipo Sueldo; "Solo control" los deja fuera de los reportes (en una Normal, un ingreso descuenta gasto) |
+| — | Los últimos 3 días del mes el sueldo cuenta para el mes siguiente | Configuración `sueldo_dias_mes_siguiente` (fase 5, O2) |
 
 ## Importadores (D7)
 
@@ -168,7 +195,9 @@ create table familias (
 create table miembros (
   user_id uuid primary key references auth.users(id) on delete cascade,
   familia_id uuid not null references familias(id) on delete restrict,
-  created_at timestamptz default now()
+  nombre text not null,                 -- cómo se lo muestra (titular de centros, D5)
+  created_at timestamptz default now(),
+  unique (familia_id, user_id)          -- para la FK compuesta de centros.titular_id
 );
 
 -- Cuentas de soporte: no pertenecen a ninguna familia
@@ -232,7 +261,8 @@ create policy editar  on <tabla> for update using (familia_id = (select familia_
 create policy borrar  on <tabla> for delete using (familia_id = (select familia_actual()));
 ```
 
-- `familias`, `miembros`: cada uno lee lo suyo; el superadmin todo. Nadie escribe desde la app (altas por script).
+- `familias`: cada uno lee la suya; `miembros`: cada uno lee los de su familia (para elegir titular, D5). El
+  superadmin lee todo. Nadie escribe desde la app (altas por script).
 - `superadmins`: cada uno lee solo su fila (para que la app sepa si es superadmin).
 - Tablas globales (`config_catalogo`, `importadores`): leen todos los logueados. `config_catalogo` no se escribe
   desde la app (K1).
@@ -332,10 +362,10 @@ Los datos iniciales del original (centros, reglas de categorización, CUIT/razó
 | 0 | Fork, Pages, Supabase nuevo, apuntar la app al proyecto nuevo y rutas relativas | ✅ hecho |
 | 1 | `schema.sql` multi-familia desde cero (tablas, funciones, `familia_id`, FK compuestas, RLS); `migrations/` del original → `migrations/historico/`; scripts de alta; familias dummy; tests de seguridad | ✅ hecho |
 | 2 | Superadmin: selector de familia, solo lectura, pestaña Administración, backup global y restauración por familia | ✅ hecho |
-| 3 | Personas y titulares (D5) | pendiente |
+| 3 | Titulares de los centros (D5) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
 | 4 | Catálogo de configuración + valores por familia (D3) | ✅ hecho |
 | 5 | Funciones activables (D4) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
-| 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | pendiente |
+| 6 | Relevamiento y paso a configuración de las reglas escritas en el código (D6) | 🟡 código listo; falta aplicar el script en Supabase y probar online |
 | 7 | Importadores en la base + ocultos por familia (D7) | pendiente |
 | 8 | Documentación (README, guías) y scripts de alta definitivos | pendiente |
 | 9 | Alta de la primera familia real | pendiente |
@@ -355,7 +385,7 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | D2 | Cómo se completa `familia_id` | Default `familia_actual()` + RLS; la app no lo manda |
 | D3 | Dónde vive la configuración | Catálogo documentado + valores por familia |
 | D4 | Base común vs opcional | Ver tabla de funciones; backup solo superadmin |
-| D5 | Titular de cada cuenta | Tabla `personas` + `centros.titular_id` |
+| D5 | Titular de cada cuenta | ~~Tabla `personas`~~ → un usuario de la familia: `centros.titular_id` → `miembros` |
 | D6 | Lógica por nombre de categoría / reglas fijas | Por `categorias.tipo` y configuración; relevamiento previo |
 | D7 | Importadores | Tablas en la base + lista restrictiva de ocultos por familia |
 | D8 | ARCA | Solo una familia por ahora; mensaje si faltan datos de facturación |
@@ -390,6 +420,8 @@ Las fases 3–7 son bastante independientes entre sí; la 1 va primero para que 
 | O3 | Facturación sin USDT | Queda apagada (factura ventas de USDT) |
 | O4 | Aviso de D8 | A la familia al tocar Facturar; al superadmin en la configuración |
 | O5 | Qué ve el superadmin | Cada familia con sus funciones, como la ve ella |
+| T1 | Nombre de cada usuario | `miembros.nombre`, cargado con `alta_miembro.sql` (vacío = lo que va antes de la @) |
+| R1–R11 | Reglas escritas en el código | Ver la tabla del relevamiento en D6 |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

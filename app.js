@@ -22,6 +22,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   esSuperadmin:false, soloLectura:false, sinFamilia:false, familias:[], familiaSeleccionadaId:null,
   adminMiembros:[], adminMiembrosError:null, backupArchivo:null, backupFamiliaRestaurar:'',
   configCatalogo:[], configMsg:null,
+  miembrosFamilia:[], // usuarios de la familia (D5: titulares de los centros), [{userId, nombre}]
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -273,11 +274,12 @@ function uid(){
 // "moneda" solo se manda cuando no es la default ('ARS'): así la app sigue guardando bien aunque
 // todavía no se haya corrido migracion_dolares.sql (la columna nueva no existiría).
 function toDbCentro(c){
-  var r = {id:c.id, codigo:c.codigo, nombre:c.nombre, color:c.color||null, color_texto:c.colorTexto||null, entidad:c.entidad||null};
+  var r = {id:c.id, codigo:c.codigo, nombre:c.nombre, color:c.color||null, color_texto:c.colorTexto||null, entidad:c.entidad||null, titular_id:c.titularId||null};
   if(monedaCentro(c)!=='ARS') r.moneda = monedaCentro(c);
   return r;
 }
-function fromDbCentro(r){ return {id:r.id, codigo:r.codigo, nombre:r.nombre, color:r.color||'', colorTexto:r.color_texto||'', entidad:r.entidad||'', moneda:(r.moneda==='USD'||r.moneda==='AMBAS')?r.moneda:'ARS'}; }
+function fromDbCentro(r){ return {id:r.id, codigo:r.codigo, nombre:r.nombre, color:r.color||'', colorTexto:r.color_texto||'', entidad:r.entidad||'', moneda:(r.moneda==='USD'||r.moneda==='AMBAS')?r.moneda:'ARS', titularId:r.titular_id||''}; }
+function fromDbMiembro(r){ return {userId:r.user_id, nombre:r.nombre||''}; }
 // Moneda de un Centro de Costo: 'ARS' (solo pesos), 'USD' (solo dólares) o 'AMBAS' (misma cuenta,
 // un saldo en pesos y otro en dólares).
 function monedaCentro(c){ return c && (c.moneda==='USD' || c.moneda==='AMBAS') ? c.moneda : 'ARS'; }
@@ -353,7 +355,7 @@ var TABLAS_DE_FAMILIA = ['centros', 'categorias', 'subcategorias', 'movimientos'
 
 // opciones.todasLasFamilias: sin filtrar por la familia elegida (backup global del superadmin).
 async function dbFetchAll(table, ordenarPor, opciones){
-  var filtrarFamilia = STATE.esSuperadmin && STATE.familiaSeleccionadaId && TABLAS_DE_FAMILIA.indexOf(table)!==-1 &&
+  var filtrarFamilia = STATE.esSuperadmin && STATE.familiaSeleccionadaId && (TABLAS_DE_FAMILIA.indexOf(table)!==-1 || table==='miembros') &&
     !(opciones && opciones.todasLasFamilias);
   var allRows = [];
   var pageSize = 1000;
@@ -460,6 +462,8 @@ async function cargarTodo(){
     dbFetchAll('centros'), dbFetchAll('categorias'), dbFetchAll('subcategorias'), dbFetchAll('movimientos', 'created_at'), dbFetchAll('vencimientos')
   ]);
   STATE.centros = centros.map(fromDbCentro);
+  STATE.miembrosFamilia = (await dbFetchAll('miembros')).map(fromDbMiembro)
+    .sort(function(a, b){ return a.nombre.localeCompare(b.nombre, 'es', {sensitivity:'base'}); });
   STATE.categorias = categorias.map(fromDbCategoria);
   STATE.subcategorias = subcategorias.map(fromDbSubcategoria);
   // Los movimientos en dólares viven en la misma tabla pero en una lista aparte: STATE.movimientos
@@ -617,7 +621,7 @@ function calcularSaldoUsdt(){
     return s + (u.tipo==='ingreso' ? (Number(u.cantidad)||0) : -(Number(u.cantidad)||0));
   }, 0);
 }
-// Un movimiento en pesos cargado a mano con subcategoría "Venta USDT" (p. ej. desde Importar)
+// Un movimiento en pesos cargado a mano en la categoría de Venta de USDT (p. ej. desde Importar)
 // todavía no tiene su contraparte en usdt_movimientos: esto detecta esos casos para ofrecer
 // el ícono que genera el registro USDT vinculado, y evita ofrecerlo dos veces si ya existe.
 function usdtVinculadoAMovimiento(movId){
@@ -626,30 +630,25 @@ function usdtVinculadoAMovimiento(movId){
 function esVentaUsdtPendiente(m){
   return funcionActiva('usdt') && esMovimientoVentaUsdt(m) && Number(m.ingreso)>0 && !usdtVinculadoAMovimiento(m.id);
 }
-// "Venta USDT" es una categoría propia. Por compatibilidad también se reconoce la forma anterior
-// (subcategoría "Venta USDT" dentro de Sueldo), hasta que se corra migracion_venta_usdt_categoria.sql.
+// Las ventas de USDT van a la categoría de tipo "venta_usdt" (se elige en el ABM; la base admite una
+// sola por familia), no a una que se llame de cierta forma (D6).
 function esCategoriaVentaUsdt(categoriaId){
-  return !!categoriaId && (nombreCategoria(categoriaId)||'').trim()==='Venta USDT';
-}
-function esSubcategoriaVentaUsdt(subcategoriaId){
-  return !!subcategoriaId && (nombreSubcategoria(subcategoriaId)||'').trim()==='Venta USDT';
+  return esTipoCategoria(categoriaId, 'venta_usdt');
 }
 function esMovimientoVentaUsdt(m){
-  return esCategoriaVentaUsdt(m.categoriaId) || esSubcategoriaVentaUsdt(m.subcategoriaId);
+  return esCategoriaVentaUsdt(m.categoriaId);
 }
-// Categoría "Venta USDT": el ingreso en pesos de toda venta de USDT se clasifica ahí solo, sin
-// elegirlo a mano, para que no termine en otra categoría y confunda. Devuelve {categoriaId,
-// subcategoriaId, etiqueta}; si todavía existe solo la subcategoría vieja, usa esa.
+// El ingreso en pesos de toda venta de USDT se clasifica solo en la categoría de tipo "venta_usdt",
+// sin elegirlo a mano, para que no termine en otra categoría y confunda. Devuelve {categoriaId,
+// subcategoriaId, etiqueta}, o null si la familia todavía no tiene esa categoría.
 function destinoVentaUsdt(){
-  var cat = STATE.categorias.find(function(c){ return (c.nombre||'').trim()==='Venta USDT'; });
-  if(cat) return {categoriaId:cat.id, subcategoriaId:'', etiqueta:cat.nombre};
-  var sub = STATE.subcategorias.find(function(s){ return (s.nombre||'').trim()==='Venta USDT'; });
-  if(sub) return {categoriaId:sub.categoriaId, subcategoriaId:sub.id, etiqueta:nombreCategoria(sub.categoriaId)+' › '+sub.nombre};
-  return null;
+  var cat = STATE.categorias.find(function(c){ return c.tipo==='venta_usdt'; });
+  return cat ? {categoriaId:cat.id, subcategoriaId:'', etiqueta:cat.nombre} : null;
 }
-// Todo ingreso de la pestaña USDT cuenta como Sueldo en Resumen y Flujo de caja (es como se cobra
-// el sueldo de Ani). Los pesos que después entran al vender ese USDT (movimiento vinculado a una
-// venta, o con subcategoría "Venta USDT") no se vuelven a contar: es el mismo sueldo.
+// Un ingreso de la pestaña USDT cuenta como Sueldo en Resumen y Flujo de caja si su categoría es de
+// tipo Sueldo (D6; sin categoría suma a la tenencia pero no es ingreso). Los pesos que después entran
+// al vender USDT (movimiento vinculado a una venta, o en la categoría de Venta de USDT) no se cuentan
+// como ingreso: es la misma plata que ya entró como USDT.
 function idsMovimientosDeVentaUsdt(){
   var ids = {};
   STATE.usdtMovimientos.forEach(function(u){ if(u.tipo==='venta' && u.movimientoId) ids[u.movimientoId] = true; });
@@ -864,11 +863,12 @@ function subcategoriasOrdenadas(lista){ return lista.slice().sort(function(a,b){
 function nombreCategoria(id){ var c = STATE.categorias.find(function(x){return x.id===id;}); return c ? c.nombre : '—'; }
 function nombreSubcategoria(id){ var s = STATE.subcategorias.find(function(x){return x.id===id;}); return s ? s.nombre : '—'; }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-function codigoCentroPorUsuario(){
-  var email = (STATE.usuarioEmail||'').trim().toLowerCase();
-  if(email === 'fhsantarelli@gmail.com') return 'EF';
-  if(email === 'anitacasadei@gmail.com') return 'EA';
-  return '';
+// Centro de Costo por defecto al cargar efectivo: el último que se usó en este dispositivo (cada uno
+// carga desde su celular, así que en la práctica queda el de cada persona). Solo si sigue existiendo.
+function centroEfectivoRecordado(){
+  var id = null;
+  try{ id = localStorage.getItem('controlCentroEfectivo'); }catch(e){}
+  return STATE.centros.some(function(c){ return c.id===id; }) ? id : '';
 }
 function fechaHoyISO(){
   var d = new Date();
@@ -1108,8 +1108,6 @@ function parseTarjetaResumen(raw, vencimientoStr){
   return rows;
 }
 
-var TARJETA_CC = { 'nacion':'BNF', 'santander':'BSF', 'provincia':'BPF', 'mercadopago':'MPF' };
-
 function parseTarjeta(raw, vencimientoStr){
   var lines = raw.split('\n').map(function(l){ return l.replace(/\r$/,''); }).filter(function(l){ return l.trim().length>0; });
   var reFecha = /^(\d{2})\.(\d{2})\.(\d{2})\b/;
@@ -1306,8 +1304,6 @@ function parseNacion(raw){
   return rows;
 }
 
-var CC_MAP = { mp:'MPF', santander:'BSF', nacion:'BNF', provincia:'BPF' };
-
 function extraerProveedorSantander(tipo, detalle){
   var m = detalle.match(/^(De|A)\s+(.+)$/i);
   if(m){
@@ -1377,13 +1373,6 @@ function fechaCortaAISO(fCorta){
   if(!m) return '';
   var yy = m[3].length===2 ? '20'+m[3] : m[3];
   return yy+'-'+m[2]+'-'+m[1];
-}
-
-function findDefaultCentroId(){
-  var code = STATE.importEntidad === 'tarjeta' ? (TARJETA_CC[STATE.importBanco]||'') : (CC_MAP[STATE.importEntidad]||'');
-  if(!code) return '';
-  var c = STATE.centros.find(function(x){ return (x.codigo||'').toUpperCase() === code.toUpperCase(); });
-  return c ? c.id : '';
 }
 
 function buscarReglaParaProveedor(proveedor){
@@ -1764,9 +1753,7 @@ function renderInterno(){
   }
 
   if(STATE.efectivoAbierto){
-    var codigoDefault = codigoCentroPorUsuario();
-    var centroDefault = STATE.centros.find(function(c){ return (c.codigo||'').toUpperCase()===codigoDefault; });
-    var centroDefaultId = centroDefault ? centroDefault.id : '';
+    var centroDefaultId = centroEfectivoRecordado();
     // Draft: conserva lo tipeado (Fecha/Centro/Tipo/Monto/Proveedor/Detalle/Subcategoría) entre
     // renders disparados por el propio modal (p. ej. al elegir Categoría, ver el listener de
     // ef-categoria más abajo) — si no, cada re-render los recrea vacíos porque no tienen otro estado.
@@ -1866,12 +1853,16 @@ var MONEDAS_CENTRO = [
   {id:'USD', label:'Dólares'},
   {id:'AMBAS', label:'Pesos y dólares'}
 ];
-function campoCentro(codigo, nombre, color, entidad, moneda){
+function campoCentro(codigo, nombre, color, entidad, moneda, titularId){
   return '<div class="field"><label>Código (CC)</label><input type="text" id="f-centro-codigo" placeholder="Ej: MPF" value="'+esc(codigo)+'" style="width:100px;text-transform:uppercase"></div>'+
     '<div class="field"><label>Nombre</label><input type="text" id="f-centro-nombre" placeholder="Ej: Mercado Pago" value="'+esc(nombre)+'" style="width:220px"></div>'+
     '<div class="field"><label>Color</label><input type="color" id="f-centro-color" value="'+esc(color)+'"></div>'+
     '<div class="field"><label>Entidad</label><select id="f-centro-entidad">'+
       ENTIDADES.map(function(e){ return '<option value="'+e.id+'"'+(e.id===(entidad||'')?' selected':'')+'>'+e.label+'</option>'; }).join('')+
+    '</select></div>'+
+    // Titular (D5): un usuario de la familia. Los nombres se cargan con scripts/sql/alta_miembro.sql.
+    '<div class="field"><label>Titular</label><select id="f-centro-titular"><option value="">Sin titular</option>'+
+      STATE.miembrosFamilia.map(function(m){ return '<option value="'+esc(m.userId)+'"'+(m.userId===titularId?' selected':'')+'>'+esc(m.nombre)+'</option>'; }).join('')+
     '</select></div>'+
     // Con Dólares apagada no se muestra, pero se conserva la moneda que tenía el centro.
     (funcionActiva('dolares')
@@ -1884,6 +1875,7 @@ function renderCentros(){
   var rows = STATE.centros.map(function(c){
     return '<tr><td data-label="Código">'+renderChip(c.codigo, colorCentro(c.id), colorTextoCentro(c.id))+'</td><td data-label="Nombre">'+esc(c.nombre)+'</td>'+
       '<td data-label="Entidad">'+logoEntidadHtml(c)+'</td>'+
+      '<td data-label="Titular">'+(titularDeCentro(c) ? esc(nombreMiembro(titularDeCentro(c))) : '<span style="color:var(--ink-soft)">Sin titular</span>')+'</td>'+
       (funcionActiva('dolares') ? '<td data-label="Moneda">'+MONEDAS_CENTRO.find(function(m){ return m.id===monedaCentro(c); }).label+'</td>' : '')+
       '<td class="actions-cell"><button class="link" data-action="edit-centro" data-id="'+c.id+'">editar</button>'+
       '<button class="link" data-action="del-centro" data-id="'+c.id+'">borrar</button></td></tr>';
@@ -1893,7 +1885,7 @@ function renderCentros(){
   if(editing){
     MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card">'+
       '<h2>Editar centro de costo</h2>'+
-      '<div class="fields-row">'+ campoCentro(editing.codigo, editing.nombre, colorCentro(editing.id), editing.entidad, monedaCentro(editing)) +'</div>'+
+      '<div class="fields-row">'+ campoCentro(editing.codigo, editing.nombre, colorCentro(editing.id), editing.entidad, monedaCentro(editing), titularDeCentro(editing)) +'</div>'+
       '<div class="fields-row" style="margin-top:14px">'+
         '<button data-action="save-centro" data-id="'+editing.id+'">Guardar cambios</button>'+
         '<button class="secondary" data-action="cancel-edit">Cancelar</button>'+
@@ -1904,7 +1896,7 @@ function renderCentros(){
   var formNuevoCentro = editing ? '' : ''+
   '<div class="card">'+
     '<h2>Nuevo centro de costo</h2>'+
-    '<div class="fields-row">'+ campoCentro('', '', PALETA_DONUT[STATE.centros.length % PALETA_DONUT.length], '', 'ARS') +
+    '<div class="fields-row">'+ campoCentro('', '', PALETA_DONUT[STATE.centros.length % PALETA_DONUT.length], '', 'ARS', '') +
       '<button data-action="save-centro" data-id="">Agregar</button>'+
     '</div>'+
   '</div>';
@@ -1912,7 +1904,7 @@ function renderCentros(){
   return formNuevoCentro +
   '<div class="card">'+
     '<h3>Centros de costo cargados</h3>'+
-    (STATE.centros.length ? '<table class="table tabla-movil"><thead><tr><th>Código</th><th>Nombre</th><th>Entidad</th>'+(funcionActiva('dolares')?'<th>Moneda</th>':'')+'<th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún centro de costo.</div>')+
+    (STATE.centros.length ? '<table class="table tabla-movil"><thead><tr><th>Código</th><th>Nombre</th><th>Entidad</th><th>Titular</th>'+(funcionActiva('dolares')?'<th>Moneda</th>':'')+'<th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<div class="empty">Todavía no cargaste ningún centro de costo.</div>')+
   '</div>';
 }
 
@@ -1929,7 +1921,8 @@ var TIPOS_CATEGORIA = [
   {id:'tec', label:'TEC (transferencia entre cuentas)'},
   {id:'inversion', label:'Inversión (se muestra aparte)'},
   {id:'sueldo', label:'Sueldo (ingreso base)'},
-  {id:'control', label:'Solo control (no cuenta en reportes)'}
+  {id:'control', label:'Solo control (no cuenta en reportes)'},
+  {id:'venta_usdt', label:'Venta de USDT (destino de las ventas)', funcion:'usdt'}
 ];
 // Ayuda que se muestra abajo del desplegable "Tratamiento en reportes" en el ABM.
 function ayudaTipoCategoria(){
@@ -1940,10 +1933,11 @@ function ayudaTipoCategoria(){
     '<strong>Inversión:</strong> gastos grandes pagados con ahorros que dejan algo de valor (ej. Obra). Tarjeta propia en Resumen y no se resta de la capacidad de ahorro.<br>'+
     '<strong>Sueldo:</strong> tu ingreso fijo. Es el "Total ingresos" de Resumen y la base de la capacidad de ahorro.<br>'+
     '<strong>Solo control:</strong> movimientos que querés registrar y controlar pero que no son ingresos ni gastos tuyos. No cuenta en reportes (sí mueve el saldo de la cuenta en Saldos); en Movimientos sus totales solo se suman si filtrás por esa categoría.'+
+    (funcionActiva('usdt') ? '<br><strong>Venta de USDT:</strong> adonde van solos los pesos de cada venta de USDT. No cuenta como ingreso (la plata ya entró como USDT). Puede haber una sola.' : '')+
   '</div>';
 }
 function tipoLabel(tipo){
-  return ({tec:'TEC', inversion:'Inversión', sueldo:'Sueldo', control:'Solo control'})[tipo] || '—';
+  return ({tec:'TEC', inversion:'Inversión', sueldo:'Sueldo', control:'Solo control', venta_usdt:'Venta de USDT'})[tipo] || '—';
 }
 
 function renderABM(){
@@ -2084,7 +2078,7 @@ function renderAdministracion(){
     return '<tr><td>'+esc(f.nombre)+'</td><td>'+(miembrosPorFamilia[f.id]||0)+'</td><td>'+fmtFechaHora(f.created_at)+'</td></tr>';
   }).join('');
   var filasMiembros = STATE.adminMiembros.map(function(m){
-    return '<tr><td>'+esc(m.email)+'</td><td>'+esc(m.familia)+'</td><td>'+fmtFechaHora(m.created_at)+'</td></tr>';
+    return '<tr><td>'+esc(m.nombre||'')+'</td><td>'+esc(m.email)+'</td><td>'+esc(m.familia)+'</td><td>'+fmtFechaHora(m.created_at)+'</td></tr>';
   }).join('');
   var ayudaAltas = '<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Las altas se hacen con los scripts de <code>scripts/sql/</code> en el SQL Editor de Supabase.</div>';
 
@@ -2117,7 +2111,7 @@ function renderAdministracion(){
     '<h2>Miembros ('+STATE.adminMiembros.length+')</h2>'+
     (STATE.adminMiembrosError ? '<div class="msg err">'+esc(STATE.adminMiembrosError)+'</div>' : '')+
     (STATE.adminMiembros.length
-      ? '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Email</th><th>Familia</th><th>Alta</th></tr></thead><tbody>'+filasMiembros+'</tbody></table></div>'
+      ? '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Nombre</th><th>Email</th><th>Familia</th><th>Alta</th></tr></thead><tbody>'+filasMiembros+'</tbody></table></div>'
       : (STATE.adminMiembrosError ? '' : '<div class="empty">Todavía no hay miembros.</div>'))+
   '</div>'+
   renderConfigFamilia()+
@@ -2142,7 +2136,8 @@ function campoCategoria(nombre, tipo, color){
   return '<div class="field"><label>Nombre</label><input type="text" id="f-categoria-nombre" placeholder="Ej: Alimentos" value="'+esc(nombre)+'" style="width:220px"></div>'+
     '<div class="field"><label>Color</label><input type="color" id="f-categoria-color" value="'+esc(color)+'"></div>'+
     '<div class="field"><label>Tratamiento en reportes</label><select id="f-categoria-tipo">'+
-      TIPOS_CATEGORIA.map(function(t){ return '<option value="'+t.id+'" '+((tipo||'')===t.id?'selected':'')+'>'+esc(t.label)+'</option>'; }).join('')+
+      TIPOS_CATEGORIA.filter(function(t){ return !t.funcion || funcionActiva(t.funcion) || (tipo||'')===t.id; })
+        .map(function(t){ return '<option value="'+t.id+'" '+((tipo||'')===t.id?'selected':'')+'>'+esc(t.label)+'</option>'; }).join('')+
     '</select></div>';
 }
 function renderCategorias(){
@@ -3061,11 +3056,30 @@ function renderVencimientos(){
 }
 
 // ===================== SALDOS =====================
-function titularDeCentro(codigo){
-  var c = (codigo||'').trim().toUpperCase();
-  if(c.slice(-1) === 'A') return 'Ana';
-  if(c.slice(-1) === 'F') return 'Franco';
-  return 'Otros';
+// Titular de un Centro de Costo (D5): un usuario de la familia, elegido en el ABM. '' = sin titular
+// (también si el usuario ya no es de la familia).
+function titularDeCentro(c){
+  var id = c && c.titularId;
+  return id && STATE.miembrosFamilia.some(function(m){ return m.userId===id; }) ? id : '';
+}
+function nombreMiembro(userId){
+  var m = STATE.miembrosFamilia.find(function(x){ return x.userId===userId; });
+  return m ? m.nombre : '';
+}
+// Saldos agrupados: un grupo por titular (por nombre) y al final "Sin titular", que suma también lo que
+// no tiene Centro de Costo. Cada grupo: {titularId, titulo, total, filas}; solo los que tienen algo.
+function agruparSaldosPorTitular(filas, saldoSinCentro){
+  var porNombre = STATE.miembrosFamilia.slice().sort(function(a, b){ return a.nombre.localeCompare(b.nombre, 'es', {sensitivity:'base'}); });
+  var grupos = porNombre.map(function(m){
+    var filasGrupo = filas.filter(function(f){ return f.titularId===m.userId; });
+    return { titularId:m.userId, titulo:m.nombre, filas:filasGrupo, total:filasGrupo.reduce(function(s,f){ return s+f.saldo; },0) };
+  }).filter(function(g){ return g.filas.length; });
+  var sinTitular = filas.filter(function(f){ return !f.titularId; });
+  if(sinTitular.length || saldoSinCentro!==0){
+    grupos.push({ titularId:'', titulo:'Sin titular', filas:sinTitular,
+      total:sinTitular.reduce(function(s,f){ return s+f.saldo; },0) + saldoSinCentro });
+  }
+  return grupos;
 }
 function calcularSaldos(){
   var saldoPorCentro = {};
@@ -3083,16 +3097,13 @@ function calcularSaldos(){
   });
 
   var filas = STATE.centros.filter(function(c){ return centroAdmitePesos(c) || saldoPorCentro[c.id]; }).map(function(c){
-    return { id:c.id, codigo:c.codigo, nombre:c.nombre, entidad:c.entidad, titular: titularDeCentro(c.codigo), saldo: saldoPorCentro[c.id]||0 };
-  }).sort(function(a,b){ return a.titular.localeCompare(b.titular) || a.codigo.localeCompare(b.codigo); });
+    return { id:c.id, codigo:c.codigo, nombre:c.nombre, entidad:c.entidad, titularId: titularDeCentro(c), saldo: saldoPorCentro[c.id]||0 };
+  }).sort(function(a,b){ return a.codigo.localeCompare(b.codigo); });
 
-  var totalAna = filas.filter(function(f){return f.titular==='Ana';}).reduce(function(s,f){return s+f.saldo;},0);
-  var totalFranco = filas.filter(function(f){return f.titular==='Franco';}).reduce(function(s,f){return s+f.saldo;},0);
-  var hayOtros = filas.some(function(f){return f.titular==='Otros';}) || saldoSinCentro !== 0;
-  var totalOtros = filas.filter(function(f){return f.titular==='Otros';}).reduce(function(s,f){return s+f.saldo;},0) + saldoSinCentro;
-  var totalGeneral = totalAna + totalFranco + totalOtros;
+  var grupos = agruparSaldosPorTitular(filas, saldoSinCentro);
+  var totalGeneral = grupos.reduce(function(s,g){ return s+g.total; },0);
 
-  return { filas:filas, saldoSinCentro:saldoSinCentro, totalAna:totalAna, totalFranco:totalFranco, hayOtros:hayOtros, totalOtros:totalOtros, totalGeneral:totalGeneral, calculadoEn: new Date() };
+  return { filas:filas, saldoSinCentro:saldoSinCentro, grupos:grupos, totalGeneral:totalGeneral, calculadoEn: new Date() };
 }
 function obtenerSaldos(){
   if(STATE.saldosDirty || !STATE.saldosCache){
@@ -3157,10 +3168,9 @@ function renderSaldos(){
       '<div class="saldo-item-monto">'+fmtMonto(saldoSinCentro)+'</div>'+
     '</div>' : '';
 
-  var gruposHtml = ''+
-    grupoSaldos('Franco', s.totalFranco, filas.filter(function(f){return f.titular==='Franco';}))+
-    grupoSaldos('Ana', s.totalAna, filas.filter(function(f){return f.titular==='Ana';}))+
-    grupoSaldos('Otros', s.totalOtros, filas.filter(function(f){return f.titular==='Otros';}), extraSinCentro);
+  var gruposHtml = s.grupos.map(function(g){
+    return grupoSaldos(g.titulo, g.total, g.filas, g.titularId ? '' : extraSinCentro);
+  }).join('');
 
   var tabla = '<div class="card">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">'+
@@ -3489,9 +3499,9 @@ function calcularTotalesResumenKpis(centroArr, categoriaArr, mesArr){
   });
   var valoresUsdt = valoresArsIngresosUsdt();
   var usdtSueldo = STATE.usdtMovimientos.filter(function(u){
-    if(u.tipo!=='ingreso') return false;
+    if(u.tipo!=='ingreso' || !esCategoriaSueldo(u.categoriaId)) return false;
     if(centroArr.length && centroArr.indexOf(u.centroId||'')===-1) return false;
-    if(categoriaArr.length && categoriaArr.indexOf(u.categoriaId)===-1 && !categoriaArr.some(esCategoriaSueldo)) return false;
+    if(categoriaArr.length && categoriaArr.indexOf(u.categoriaId)===-1) return false;
     if(mesArr.length && mesArr.indexOf(mesEfectivoSueldo(u.fecha))===-1) return false;
     return true;
   });
@@ -3714,15 +3724,9 @@ function renderResumen(){
 // A diferencia del "Saldo" de Resumen, las categorías de tipo Inversión (ej. Obra) NO se restan: se pagan con
 // ahorros, no son gasto corriente, y restarlas daba un "ahorro" negativo en los meses de obra fuerte.
 // Se devuelve aparte (inversionPromedio) para mostrarla al lado.
-// Los ingresos de Gerardo cargados en Sueldo tampoco cuentan: no son sueldo (es plata que entra
-// para pagar la Obra), y como la inversión ya no se resta, inflarían el ahorro.
-// El Sueldo usa mesEfectivoSueldo (no el mes calendario de la fecha) e incluye todo ingreso de USDT
-// (valoresArsIngresosUsdt); los pesos de vender ese USDT quedan afuera, porque volver a sumarlos
-// duplicaría el mismo sueldo.
-// Proveedor "Gerardo", "Gera" o "CASADEI GERARDO CESAR" (así aparece cargado según el medio de pago).
-function esAporteGerardo(m){
-  return /\bgera(rdo)?\b/i.test(m.proveedor||'');
-}
+// El Sueldo usa mesEfectivoSueldo (no el mes calendario de la fecha) e incluye los ingresos de USDT
+// con categoría de tipo Sueldo (valoresArsIngresosUsdt); los pesos de vender USDT quedan afuera, porque
+// volver a sumarlos duplicaría la misma plata.
 function capacidadAhorroPromedio(ventana){
   var hoy = new Date();
   var mesActualStr = hoy.getFullYear()+'-'+pad2(hoy.getMonth()+1);
@@ -3738,7 +3742,6 @@ function capacidadAhorroPromedio(ventana){
     if(esCategoriaFueraDeReportes(m.categoriaId)) return;
     if(esIngresoPorVentaUsdt(m, idsVentaUsdt)) return;
     if(esCategoriaSueldo(m.categoriaId)){
-      if(esAporteGerardo(m)) return;
       var mesSueldo = mesEfectivoSueldo(m.fecha);
       if(!usadosSet[mesSueldo]) return;
       ingresoPorMes[mesSueldo] = (ingresoPorMes[mesSueldo]||0) + (Number(m.ingreso)||0);
@@ -3754,7 +3757,7 @@ function capacidadAhorroPromedio(ventana){
   });
   var valoresUsdt = valoresArsIngresosUsdt();
   STATE.usdtMovimientos.forEach(function(u){
-    if(u.tipo!=='ingreso') return;
+    if(u.tipo!=='ingreso' || !esCategoriaSueldo(u.categoriaId)) return;
     var mesSueldo = mesEfectivoSueldo(u.fecha);
     if(!usadosSet[mesSueldo]) return;
     ingresoPorMes[mesSueldo] = (ingresoPorMes[mesSueldo]||0) + (valoresUsdt[u.id]||0);
@@ -4031,14 +4034,13 @@ function calcularSaldosUsd(){
   });
   // Un CC aparece si admite dólares o si (por un cambio de moneda posterior) todavía tiene saldo en USD.
   var filas = STATE.centros.filter(function(c){ return centroAdmiteDolares(c) || saldoPorCentro[c.id]; }).map(function(c){
-    return { id:c.id, codigo:c.codigo, nombre:c.nombre, entidad:c.entidad, titular: titularDeCentro(c.codigo), saldo: saldoPorCentro[c.id]||0 };
-  }).sort(function(a,b){ return a.titular.localeCompare(b.titular) || a.codigo.localeCompare(b.codigo); });
-  function totalDe(t){ return filas.filter(function(f){ return f.titular===t; }).reduce(function(s,f){ return s+f.saldo; },0); }
-  var totalOtros = totalDe('Otros') + saldoSinCentro;
-  return { filas:filas, saldoSinCentro:saldoSinCentro, totalFranco:totalDe('Franco'), totalAna:totalDe('Ana'), totalOtros:totalOtros,
-    totalGeneral: totalDe('Franco') + totalDe('Ana') + totalOtros };
+    return { id:c.id, codigo:c.codigo, nombre:c.nombre, entidad:c.entidad, titularId: titularDeCentro(c), saldo: saldoPorCentro[c.id]||0 };
+  }).sort(function(a,b){ return a.codigo.localeCompare(b.codigo); });
+  var grupos = agruparSaldosPorTitular(filas, saldoSinCentro);
+  return { filas:filas, saldoSinCentro:saldoSinCentro, grupos:grupos,
+    totalGeneral: grupos.reduce(function(s,g){ return s+g.total; },0) };
 }
-// Grupos Franco / Ana / Otros con el saldo en USD de cada CC (mismo formato que Saldos en pesos).
+// Grupos por titular con el saldo en USD de cada CC (mismo formato que Saldos en pesos).
 function saldosUsdGruposHtml(s){
   function grupo(titulo, total, filasGrupo, extraHtml){
     if(!filasGrupo.length && !extraHtml) return '';
@@ -4058,9 +4060,7 @@ function saldosUsdGruposHtml(s){
   }
   var extraSinCentro = s.saldoSinCentro !== 0 ? '<div class="saldo-item"><div class="saldo-item-nombre">Movimientos en dólares sin Centro de Costo</div><div class="saldo-item-monto">'+fmtUsd(s.saldoSinCentro)+'</div></div>' : '';
   return '<div class="saldos-grupos">'+
-    grupo('Franco', s.totalFranco, s.filas.filter(function(f){ return f.titular==='Franco'; }))+
-    grupo('Ana', s.totalAna, s.filas.filter(function(f){ return f.titular==='Ana'; }))+
-    grupo('Otros', s.totalOtros, s.filas.filter(function(f){ return f.titular==='Otros'; }), extraSinCentro)+
+    s.grupos.map(function(g){ return grupo(g.titulo, g.total, g.filas, g.titularId ? '' : extraSinCentro); }).join('')+
   '</div>';
 }
 // Cotización del dólar blue (ARS) vía DolarApi (pública, sin key, CORS abierto). La tenencia se valúa
@@ -4260,7 +4260,7 @@ function campoUsdt(e){
   var subOpciones = subcategoriasOrdenadas(STATE.subcategorias.filter(function(s){ return s.categoriaId === e.categoriaId; }))
     .map(function(s){ return '<option value="'+s.id+'" '+(e.subcategoriaId===s.id?'selected':'')+'>'+esc(s.nombre)+'</option>'; }).join('');
   var categoriaSubHtml = ''+
-    '<div class="field"><label>Categoría'+(esVenta?'':' (opcional)')+'</label><select id="f-usdt-categoria"><option value="">'+(esVenta?'Elegir...':'Sin categoría')+'</option>'+
+    '<div class="field"><label>Categoría'+(esVenta?'':' (opcional; de tipo Sueldo para que cuente como sueldo)')+'</label><select id="f-usdt-categoria"><option value="">'+(esVenta?'Elegir...':'Sin categoría')+'</option>'+
       categoriasOrdenadas().map(function(c){ return '<option value="'+c.id+'" '+(e.categoriaId===c.id?'selected':'')+'>'+esc(c.nombre)+'</option>'; }).join('')+
     '</select></div>'+
     '<div class="field"><label>Subcategoría</label><select id="f-usdt-subcategoria"><option value="">—</option>'+subOpciones+'</select></div>';
@@ -4983,18 +4983,19 @@ async function handleAction(action, id){
     var colorCentroInput = document.getElementById('f-centro-color').value;
     var entidadCentroInput = document.getElementById('f-centro-entidad').value;
     var monedaCentroInput = (document.getElementById('f-centro-moneda')||{}).value || 'ARS';
+    var titularCentroInput = (document.getElementById('f-centro-titular')||{}).value || '';
     if(!codigo || !nombre) return;
     STATE.dbError = null;
     try{
       if(id){
         var c = STATE.centros.find(function(x){return x.id===id;});
-        var camposCentro = {codigo:codigo, nombre:nombre, color:colorCentroInput, entidad:entidadCentroInput||null};
+        var camposCentro = {codigo:codigo, nombre:nombre, color:colorCentroInput, entidad:entidadCentroInput||null, titular_id:titularCentroInput||null};
         // Como en toDbCentro: la moneda solo viaja si es (o era) distinta de pesos.
         if(monedaCentroInput!=='ARS' || monedaCentro(c)!=='ARS') camposCentro.moneda = monedaCentroInput;
         await dbUpdate('centros', id, camposCentro);
-        c.codigo = codigo; c.nombre = nombre; c.color = colorCentroInput; c.entidad = entidadCentroInput; c.moneda = monedaCentroInput;
+        c.codigo = codigo; c.nombre = nombre; c.color = colorCentroInput; c.entidad = entidadCentroInput; c.moneda = monedaCentroInput; c.titularId = titularCentroInput;
       } else {
-        var nuevoC = {id:uid(), codigo:codigo, nombre:nombre, color:colorCentroInput, entidad:entidadCentroInput, moneda:monedaCentroInput};
+        var nuevoC = {id:uid(), codigo:codigo, nombre:nombre, color:colorCentroInput, entidad:entidadCentroInput, moneda:monedaCentroInput, titularId:titularCentroInput};
         await dbInsert('centros', toDbCentro(nuevoC));
         STATE.centros.push(nuevoC);
       }
@@ -5024,6 +5025,11 @@ async function handleAction(action, id){
     var colorCategoriaInput = document.getElementById('f-categoria-color').value;
     if(!nombre) return;
     STATE.dbError = null;
+    var otraVentaUsdt = tipo==='venta_usdt' && STATE.categorias.find(function(x){ return x.tipo==='venta_usdt' && x.id!==id; });
+    if(otraVentaUsdt){
+      STATE.dbError = 'Ya hay una categoría de tipo Venta de USDT ("'+otraVentaUsdt.nombre+'"): puede haber una sola.';
+      render(); return;
+    }
     try{
       if(id){
         await dbUpdate('categorias', id, {nombre:nombre, tipo:tipo||null, color:colorCategoriaInput});
@@ -5315,6 +5321,7 @@ async function handleAction(action, id){
     try{
       await dbInsert('movimientos', toDbMovimiento(nuevoEf));
       STATE.movimientos.push(nuevoEf);
+      try{ if(efCentro) localStorage.setItem('controlCentroEfectivo', efCentro); }catch(e){}
       STATE.saldosDirty = true;
       STATE.efectivoAbierto = false;
       STATE.efectivoCategoriaId = '';
@@ -5691,12 +5698,11 @@ async function handleAction(action, id){
       var textoVacio = res.omitidas ? 'Todas las filas encontradas ('+res.omitidas+') están en dólares; esta entidad solo importa montos en pesos.' : 'No se encontró ningún movimiento en el texto pegado.';
       STATE.importMsg = {type:'err', text: textoVacio}; STATE.importPreview = null; render(); return;
     }
-    var defaultCentroId = findDefaultCentroId();
     var tarjetaMarcaLote = (STATE.importEntidad==='tarjeta') ? (STATE.importTarjetaMarca||'').trim() : '';
     STATE.importPreview = res.rows.map(function(r){
       var sugerido = aplicarReglaAFila(r.proveedor);
       return { id:uid(), fecha: fechaCortaAISO(r.fecha), fechaConsumo: r.fechaConsumo ? fechaCortaAISO(r.fechaConsumo) : '', tarjetaMarca: tarjetaMarcaLote, cuotas: r.cuota||'', proveedor: r.proveedor||'', detalle: r.tipo||'', monto: r.monto,
-        centroId: defaultCentroId||'', categoriaId: sugerido.categoriaId, subcategoriaId: sugerido.subcategoriaId, incluir:true, guardarRegla:false };
+        centroId: '', categoriaId: sugerido.categoriaId, subcategoriaId: sugerido.subcategoriaId, incluir:true, guardarRegla:false };
     });
     STATE.importMsg = defaultCentroId ? null : {type:'err', text:'No encontré un Centro de Costo con el código esperado para esta entidad. Asigná uno por fila abajo, o cargalo primero en ABM → Centros de Costo.'};
     if(res.omitidas){
@@ -6110,7 +6116,7 @@ async function handleAction(action, id){
     render(); return;
   }
 
-  // ---- USDT desde un movimiento existente con subcategoría "Venta USDT" ----
+  // ---- USDT desde un movimiento existente en la categoría de Venta de USDT ----
   if(action==='abrir-usdt-venta-mov'){
     STATE.usdtVentaMovId = id;
     STATE.usdtVentaMovMsg = null;

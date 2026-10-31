@@ -25,10 +25,9 @@ describe('acumuladoFacturado12Meses', () => {
 
 describe('esVentaUsdtFacturable', () => {
   it('no es facturable si Facturación ARCA está apagada, o si está prendida pero USDT no', () => {
-    win.STATE.categorias = [{ id: 'c1', nombre: 'Ingresos' }];
-    win.STATE.subcategorias = [{ id: 's1', categoriaId: 'c1', nombre: 'Venta USDT' }];
+    win.STATE.categorias = [{ id: 'cvu', nombre: 'Cripto', tipo: 'venta_usdt' }];
     win.STATE.facturas = [];
-    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    const mov = { id: 'm1', categoriaId: 'cvu', ingreso: 50000 };
     win.STATE.configuracion = [{ clave: 'feature.facturacion_arca', valor: 'false' }];
     expect(win.esVentaUsdtFacturable(mov)).toBe(false);
     win.STATE.configuracion = [{ clave: 'feature.usdt', valor: 'false' }];
@@ -37,38 +36,39 @@ describe('esVentaUsdtFacturable', () => {
   });
 
   beforeEach(() => {
-    win.STATE.categorias = [{ id: 'c1', nombre: 'Ingresos' }];
-    win.STATE.subcategorias = [{ id: 's1', categoriaId: 'c1', nombre: 'Venta USDT' }, { id: 's2', categoriaId: 'c1', nombre: 'Otra' }];
+    // La venta de USDT se reconoce por el tipo de la categoría, no por el nombre (D6)
+    win.STATE.categorias = [{ id: 'c1', nombre: 'Ingresos' }, { id: 'cvu', nombre: 'Cripto', tipo: 'venta_usdt' }, { id: 'cnom', nombre: 'Venta USDT' }];
   });
 
   it('es facturable un movimiento de Venta USDT con ingreso positivo y sin factura emitida', () => {
     win.STATE.facturas = [];
-    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    const mov = { id: 'm1', categoriaId: 'cvu', ingreso: 50000 };
     expect(win.esVentaUsdtFacturable(mov)).toBe(true);
   });
 
   it('no es facturable si ya tiene una factura emitida en producción', () => {
     win.STATE.facturas = [{ id: 'f1', movimientoId: 'm1', estado: 'emitida', ambiente: 'produccion' }];
-    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    const mov = { id: 'm1', categoriaId: 'cvu', ingreso: 50000 };
     expect(win.esVentaUsdtFacturable(mov)).toBe(false);
   });
 
   it('sigue siendo facturable si la única factura previa quedó en error (se puede reintentar)', () => {
     win.STATE.facturas = [{ id: 'f1', movimientoId: 'm1', estado: 'error', ambiente: 'produccion' }];
-    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    const mov = { id: 'm1', categoriaId: 'cvu', ingreso: 50000 };
     expect(win.esVentaUsdtFacturable(mov)).toBe(true);
   });
 
   it('sigue siendo facturable si la única factura emitida fue una prueba en homologación', () => {
     win.STATE.facturas = [{ id: 'f1', movimientoId: 'm1', estado: 'emitida', ambiente: 'homologacion' }];
-    const mov = { id: 'm1', subcategoriaId: 's1', ingreso: 50000 };
+    const mov = { id: 'm1', categoriaId: 'cvu', ingreso: 50000 };
     expect(win.esVentaUsdtFacturable(mov)).toBe(true);
   });
 
-  it('no es facturable si la subcategoría no es "Venta USDT" o el ingreso no es positivo', () => {
+  it('no es facturable si la categoría no es de tipo Venta de USDT (aunque se llame así) o el ingreso no es positivo', () => {
     win.STATE.facturas = [];
-    expect(win.esVentaUsdtFacturable({ id: 'm1', subcategoriaId: 's2', ingreso: 50000 })).toBe(false);
-    expect(win.esVentaUsdtFacturable({ id: 'm1', subcategoriaId: 's1', ingreso: 0 })).toBe(false);
+    expect(win.esVentaUsdtFacturable({ id: 'm1', categoriaId: 'c1', ingreso: 50000 })).toBe(false);
+    expect(win.esVentaUsdtFacturable({ id: 'm1', categoriaId: 'cnom', ingreso: 50000 })).toBe(false);
+    expect(win.esVentaUsdtFacturable({ id: 'm1', categoriaId: 'cvu', ingreso: 0 })).toBe(false);
   });
 });
 
