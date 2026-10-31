@@ -7,7 +7,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   importEntidad:'mp', importBanco:'nacion', importVencimiento:'', importTarjetaMarca:'', importRaw:'', importPreview:null, importPreviewExcel:null, importMsg:null,
   bulkColorCatMsg:null, bulkColorCatAbierto:false, confirmState:null, subDeleteState:null, vencPagarState:null, movFormMsg:null, movFieldErrors:null,
   filtros:{centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false},
-  resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
+  resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, filtrosResumenAbiertos:null, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
   vencFormMsg:null, vrecFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
   usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
   usdtVentaMovId:null, usdtVentaMovMsg:null, usdtVentaMovCantidad:'',
@@ -3865,10 +3865,26 @@ function mesAnteriorDe(mesStr){
   return mesOffset(d, -1);
 }
 
+// Texto corto de lo que muestran los filtros del Resumen, para el encabezado colapsado.
+function resumenDeFiltros(f){
+  var meses = !f.mes.length ? 'Todos los meses'
+    : (f.mes.length<=3 ? f.mes.slice().sort().map(mesLabelCorto).join(', ') : f.mes.length+' meses');
+  var centros = !f.centro.length ? 'Todos los centros'
+    : (f.centro.length<=3 ? f.centro.map(function(id){ return nombreCentro(id).split(' · ')[0]; }).join(', ') : f.centro.length+' centros');
+  var categorias = !f.categoria.length ? 'Todas las categorías'
+    : (f.categoria.length<=2 ? f.categoria.map(nombreCategoria).join(', ') : f.categoria.length+' categorías');
+  return [meses, centros, categorias, 'desglose por '+(f.vista==='centro'?'centro':'categoría')];
+}
+// Los filtros por defecto: el mes actual, todo lo demás sin filtrar.
+function filtrosResumenPorDefecto(){ return {centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}; }
+
 function renderResumen(){
   var f = STATE.resumenFiltros || {centro:[], categoria:[], mes:[], vista:'categoria'};
 
-  var centroOptions = centrosOrdenados().map(function(c){ return {value:c.id, label:c.codigo}; });
+  // Con Dólares prendido también se puede filtrar por los centros que son solo en dólares (sus gastos
+  // cuentan en las tarjetas, pasados a pesos).
+  var centrosFiltro = funcionActiva('dolares') ? ordenarPorCodigo(STATE.centros.slice()) : centrosOrdenados();
+  var centroOptions = centrosFiltro.map(function(c){ return {value:c.id, label:c.codigo}; });
   var categoriaOptions = categoriasOrdenadas().map(function(c){ return {value:c.id, label:c.nombre}; });
   var meses = getMesesHastaHoy();
   var mesOptions = meses.map(function(m){ return {value:m, label:mesLabelCorto(m)}; });
@@ -3993,10 +4009,24 @@ function renderResumen(){
   });
   var trendSvg = trendChart(mesesTrend, dataPorMes, 640, 220);
 
-  return alertaVencimientosProximosHtml()+
-  '<div class="card card-filtros">'+
-    '<h3>Filtros</h3>'+
-    '<div class="filters">'+
+  // Filtros: debajo de "Estado actual" (que no depende de ellos) y encabezando todo lo que sí depende,
+  // agrupado en .resumen-filtrado. Se despliegan/colapsan con el encabezado: por defecto desplegados en
+  // escritorio y colapsados en el celular (ahí el encabezado muestra un resumen de lo aplicado).
+  var filtrosAbiertos = STATE.filtrosResumenAbiertos===null ? !esVistaMobile() : STATE.filtrosResumenAbiertos;
+  var porDefecto = filtrosResumenPorDefecto();
+  var filtrosCambiados = JSON.stringify(f.centro)!=='[]' || JSON.stringify(f.categoria)!=='[]' || f.vista!==porDefecto.vista ||
+    JSON.stringify(f.mes.slice().sort())!==JSON.stringify(porDefecto.mes);
+  var filtrosHtml = '<div class="card card-filtros filtros-resumen'+(filtrosAbiertos?' abierto':'')+'">'+
+    '<div class="filtros-resumen-encabezado">'+
+      '<button type="button" class="filtros-resumen-toggle" data-action="toggle-filtros-resumen" aria-expanded="'+filtrosAbiertos+'">'+
+        '<i class="bi bi-funnel"></i>'+
+        '<span class="filtros-resumen-textos"><span class="filtros-resumen-titulo">Según estos filtros</span>'+
+          '<span class="filtros-resumen-detalle">'+resumenDeFiltros(f).map(esc).join(' · ')+'</span></span>'+
+        '<i class="bi '+(filtrosAbiertos?'bi-chevron-up':'bi-chevron-down')+' filtros-resumen-chevron"></i>'+
+      '</button>'+
+      (filtrosCambiados ? '<button type="button" class="link" data-action="restablecer-filtros-resumen" style="font-size:12px;white-space:nowrap">Volver al mes actual</button>' : '')+
+    '</div>'+
+    (filtrosAbiertos ? '<div class="filters" style="margin-top:12px">'+
       '<div class="field"><label>Centro de Costo</label>'+renderMultiSelect('rf-centro', centroOptions, f.centro)+'</div>'+
       '<div class="field"><label>Categoría</label>'+renderMultiSelect('rf-categoria', categoriaOptions, f.categoria)+'</div>'+
       '<div class="field"><label>Mes</label>'+renderMultiSelect('rf-mes', mesOptions, f.mes)+'</div>'+
@@ -4004,9 +4034,13 @@ function renderResumen(){
         '<option value="categoria" '+(f.vista==='categoria'?'selected':'')+'>Categoría</option>'+
         '<option value="centro" '+(f.vista==='centro'?'selected':'')+'>Centro de Costo</option>'+
       '</select></div>'+
-    '</div>'+
-  '</div>'+
+    '</div>' : '')+
+  '</div>';
+
+  return alertaVencimientosProximosHtml()+
   estadoActualHtml+
+  '<div class="resumen-filtrado">'+
+  filtrosHtml+
   '<div class="summary-cards">'+
     '<div class="summary-card"><div class="kpi-ic kpi-ic-accent"><i class="bi bi-arrow-up"></i></div><div class="label">Total ingresos</div><div class="value ingreso">'+fmtMonto(totalIngreso)+'</div>'+deltaHtml(totalIngreso, true, anterior?anterior.totalIngreso:null)+'</div>'+
     '<div class="summary-card"><div class="kpi-ic kpi-ic-danger"><i class="bi bi-arrow-down"></i></div><div class="label">Total egresos</div><div class="value egreso">'+fmtMonto(totalEgreso)+'</div>'+deltaHtml(totalEgreso, false, anterior?anterior.totalEgreso:null)+
@@ -4054,7 +4088,8 @@ function renderResumen(){
     '</div>'+
     '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px">Ingresos menos egresos por categoría, mes a mes'+(f.centro.length?' (Centro de Costo: '+f.centro.map(function(cid){ return esc(nombreCentro(cid).split(' · ')[0]); }).join(', ')+')':'')+'. Verde = neto a favor, coral = neto en contra. No incluye TEC, Solo control ni Sueldo. Las categorías de tipo Inversión van aparte, debajo del Total. Ignora el filtro de Mes/Categoría de arriba (usa el selector de rango de acá al lado).</div>'+
     renderGrillaMensual(movsCentro, STATE.grillaRango)+
-  '</div>';
+  '</div>'+
+  '</div>'; // .resumen-filtrado
 }
 
 // ===================== FLUJO DE CAJA =====================
@@ -5362,7 +5397,7 @@ function getMovFormValues(){
 // datos tiene que sumarse acá para que el superadmin la vea.
 var ACCIONES_LECTURA = ['mov-pagina-anterior', 'mov-pagina-siguiente', 'ir-a-vencimientos', 'ir-a-movimientos-centro',
   'ir-a-reglas', 'reglas-pagina-anterior', 'reglas-pagina-siguiente', 'cancel-edit', 'confirm-yes', 'confirm-no',
-  'limpiar-filtros-mov', 'toggle-filtros-mov', 'toggle-grupo-tarjeta-mov', 'toggle-multiselect', 'multiselect-limpiar',
+  'limpiar-filtros-mov', 'toggle-filtros-mov', 'toggle-filtros-resumen', 'restablecer-filtros-resumen', 'toggle-grupo-tarjeta-mov', 'toggle-multiselect', 'multiselect-limpiar',
   'refrescar-incompletos', 'recalcular-saldos', 'exportar-movimientos-excel', 'ver-comprobante',
   'actualizar-cotizacion-usdt', 'actualizar-dolar-blue', 'toggle-usdt-opcionales',
   'toggle-menu-movil', 'cerrar-menu-movil', 'toggle-menu-usuario', 'set-tema-color', 'toggle-tema', 'cerrar-sesion',
@@ -5791,6 +5826,12 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='toggle-filtros-mov'){ STATE.filtrosMovAbiertos = !STATE.filtrosMovAbiertos; render(); return; }
+  if(action==='toggle-filtros-resumen'){
+    var abiertosAhora = STATE.filtrosResumenAbiertos===null ? !esVistaMobile() : STATE.filtrosResumenAbiertos;
+    STATE.filtrosResumenAbiertos = !abiertosAhora;
+    render(); return;
+  }
+  if(action==='restablecer-filtros-resumen'){ STATE.resumenFiltros = filtrosResumenPorDefecto(); render(); return; }
 
   // ---- MENÚ MÓVIL ----
   if(action==='toggle-menu-movil'){ STATE.menuMovilAbierto = !STATE.menuMovilAbierto; render(); return; }

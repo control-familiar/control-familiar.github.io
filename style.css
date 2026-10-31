@@ -154,6 +154,21 @@ h1,h2,h3{ font-family:'Geist',sans-serif; font-weight:600; margin:0; }
 /* Las tarjetas de Filtros no tienen tablas anchas que necesiten scroll horizontal, y ese overflow
    recortaba (y le agregaba scroll propio) al panel desplegable de los filtros multiselect. */
 .card-filtros{ overflow:visible; }
+
+/* Resumen: lo que depende de los filtros va agrupado debajo de ellos, con una línea al costado */
+.resumen-filtrado{ border-left:3px solid var(--accent-soft); padding-left:14px; margin-left:-17px; }
+.filtros-resumen-encabezado{ display:flex; align-items:center; gap:10px; }
+.filtros-resumen-toggle{ flex:1; min-width:0; display:flex; align-items:center; gap:10px; text-align:left; background:none; border:none;
+  box-shadow:none; padding:0; color:var(--ink); cursor:pointer; }
+.filtros-resumen-toggle:hover{ background:none; }
+.filtros-resumen-toggle > .bi-funnel{ font-size:16px; color:var(--accent); }
+.filtros-resumen-textos{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.filtros-resumen-titulo{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); }
+.filtros-resumen-detalle{ font-size:13px; color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
+.filtros-resumen-chevron{ color:var(--ink-soft); font-size:16px; }
+@media (max-width: 640px){
+  .resumen-filtrado{ margin-left:-10px; padding-left:8px; }
+}
 .card h2{ font-size:15px; margin-bottom:14px; }
 .card h3{ font-size:13px; color:var(--ink-soft); font-weight:600; margin-bottom:10px; text-transform:uppercase; letter-spacing:.04em; }
 
