@@ -2611,8 +2611,8 @@ function celdasEditablesMov(m){
 function celdasSoloLecturaMov(m){
   var subValorFiltro = m.subcategoriaId || '__vacio__';
   return {
-    centro: '<td'+(m.centroId?' class="celda-filtrable" data-filter-field="centro" data-filter-value="'+esc(m.centroId)+'" title="Filtrar por este Centro de Costo"':'')+' data-label="Centro">'+(m.centroId?renderChip(nombreCentro(m.centroId).split(' · ')[0], colorCentro(m.centroId), colorTextoCentro(m.centroId)):'—')+'</td>',
-    categoria: '<td'+(m.categoriaId?' class="celda-filtrable" data-filter-field="categoria" data-filter-value="'+esc(m.categoriaId)+'" title="Filtrar por esta Categoría"':'')+' data-label="Categoría">'+(m.categoriaId?renderChip(nombreCategoria(m.categoriaId), colorCategoria(m.categoriaId), colorTextoCategoria(m.categoriaId)):'—')+'</td>',
+    centro: '<td'+(m.centroId?' class="celda-filtrable" data-filter-field="centro" data-filter-value="'+esc(m.centroId)+'" title="Filtrar por este Centro de Costo"':'')+' data-label="Centro">'+(m.centroId?renderChipPunto(nombreCentro(m.centroId).split(' · ')[0], colorCentro(m.centroId)):'—')+'</td>',
+    categoria: '<td'+(m.categoriaId?' class="celda-filtrable" data-filter-field="categoria" data-filter-value="'+esc(m.categoriaId)+'" title="Filtrar por esta Categoría"':'')+' data-label="Categoría">'+(m.categoriaId?renderChipPunto(nombreCategoria(m.categoriaId), colorCategoria(m.categoriaId)):'—')+'</td>',
     subcategoria: '<td class="celda-filtrable" data-filter-field="subcategoria" data-filter-value="'+esc(subValorFiltro)+'" title="Filtrar por esta Subcategoría" data-label="Subcategoría">'+esc(nombreSubcategoria(m.subcategoriaId))+'</td>',
     proveedor: '<td'+(m.proveedor?' class="celda-filtrable" data-filter-field="texto" data-filter-value="'+esc(m.proveedor)+'" title="Filtrar por esta Contraparte"':'')+' data-label="Contraparte">'+(esTarjeta(m)?'<span title="Pagado con tarjeta de crédito"><i class="bi bi-credit-card"></i></span> ':'')+esc(m.proveedor||'')+'</td>',
     detalle: '<td data-label="Detalle">'+esc(m.detalle||'')+'</td>'
@@ -3737,10 +3737,32 @@ function colorTextoParaFondo(hex){
   var luminancia = (0.299*r + 0.587*g + 0.114*b) / 255;
   return luminancia > 0.6 ? '#1A1A1A' : '#FFFFFF';
 }
+// Oscurece un hex multiplicando cada canal por factor (0-1): mismo tono, menos luz. '' si el hex no es válido.
+function oscurecerHex(hex, factor){
+  var c = (hex||'').replace('#','');
+  if(c.length===3) c = c.split('').map(function(ch){ return ch+ch; }).join('');
+  if(c.length!==6 || /[^0-9a-fA-F]/.test(c)) return '';
+  return '#'+[0,2,4].map(function(i){
+    var v = Math.round(parseInt(c.substr(i,2),16)*factor).toString(16);
+    return v.length<2 ? '0'+v : v;
+  }).join('');
+}
+// Chip: sobre fondos claros el texto es el mismo tono bien oscuro (no negro) y el borde, un poco más oscuro
+// que el fondo. Sobre fondos oscuros, texto blanco. Un color de texto cargado a mano siempre gana.
 function renderChip(texto, color, colorTexto){
   if(!texto) return '—';
   var bg = color || '#E1EEE7';
-  return '<span class="chip" style="background:'+esc(bg)+';color:'+esc(colorTexto||colorTextoParaFondo(bg))+'">'+esc(texto)+'</span>';
+  var texto_ = colorTexto || colorTextoParaFondo(bg);
+  if(!colorTexto && texto_==='#1A1A1A') texto_ = oscurecerHex(bg, 0.3) || texto_;
+  var borde = oscurecerHex(bg, 0.85);
+  return '<span class="chip" style="background:'+esc(bg)+';color:'+esc(texto_)+(borde?';border-color:'+borde:'')+'">'+esc(texto)+'</span>';
+}
+// Variante liviana para listados largos (tabla de Movimientos): punto de color + nombre, sin relleno.
+function renderChipPunto(texto, color){
+  if(!texto) return '—';
+  var bg = color || '#E1EEE7';
+  var borde = oscurecerHex(bg, 0.85);
+  return '<span class="chip-punto"><span class="chip-punto-color" style="background:'+esc(bg)+(borde?';border-color:'+borde:'')+'"></span>'+esc(texto)+'</span>';
 }
 
 var NOMBRES_MES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
