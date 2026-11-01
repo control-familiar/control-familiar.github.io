@@ -189,9 +189,12 @@ En la base, no en el código:
   (`'santander'` → `parseSantander`). Agregar un banco = parser en el código + migración que inserta la fila.
 - Casos borde: fila sin parser en el código → no se muestra (y se avisa en consola); parser sin fila → no aparece.
 - **Una fila por cada forma de importar** (I1): `mp`, `santander`, `nacion`, `provincia`, `macro`, los resúmenes de tarjeta
-  `tarjeta_nacion`, `tarjeta_santander`, `tarjeta_provincia`, `tarjeta_mercadopago` y `excel` (Excel histórico, I4).
+  `tarjeta_nacion`, `tarjeta_santander`, `tarjeta_provincia`, `tarjeta_mercadopago`, `tarjeta_galicia` y `excel` (Excel histórico, I4).
   En Importar los de tarjeta (prefijo `tarjeta_`) se eligen como "Tarjeta de Crédito" + banco; esa opción aparece si
   hay alguno visible y la función Tarjetas está prendida. En `app.js`: `PARSERS_IMPORTACION` e `importadoresVisibles()`.
+- **Tarjeta Galicia** (`tarjeta_galicia`): los consumos en dólares u otra moneda extranjera se omiten y se avisan (como
+  Mercado Pago); impuestos y percepciones, uno por línea en pesos; la tarjeta y su titular ("Tarjeta 9359 · NOMBRE") van
+  al Detalle; la marca no se toma del texto, se escribe a mano como en los otros bancos.
 - El superadmin oculta o muestra importadores en **Administración → Importadores de _familia elegida_**, con un tilde
   por importador (tildado = visible) (I3). La lista de ocultos entra en el backup y la restauración (los que ya no
   existen se descartan al restaurar).

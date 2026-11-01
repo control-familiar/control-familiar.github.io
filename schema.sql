@@ -418,6 +418,7 @@ insert into importadores (codigo, nombre, orden) values
   ('tarjeta_santander', 'Santander', 12),
   ('tarjeta_provincia', 'Provincia', 13),
   ('tarjeta_mercadopago', 'Mercado Pago', 14),
+  ('tarjeta_galicia', 'Galicia', 15),
   ('excel', 'Excel histórico (ya categorizado)', 20);
 
 -- Caché del Token+Sign de WSAA (dura ~12hs; pedir uno nuevo antes de que expire el

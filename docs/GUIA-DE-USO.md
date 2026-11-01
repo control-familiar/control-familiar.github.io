@@ -115,6 +115,8 @@ Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) 
 
 *Mercado Pago:* copiá lo que ves en **Actividad** (también se acepta lo copiado de la pestaña Movimientos, el formato anterior). No se importan los pagos con tarjeta de crédito (entran con el resumen de la tarjeta), las compras devueltas junto con su devolución, lo rechazado o cancelado ni lo que está en dólares; la pantalla avisa cuántos quedaron afuera y por qué.
 
+*Tarjeta Galicia:* copiá el detalle de consumos del resumen (PDF), aunque arrastre encabezados y pies de página. Los consumos en dólares o en otra moneda extranjera no se importan (la pantalla avisa cuántos); los impuestos y percepciones del final entran uno por línea, y cada consumo lleva en Detalle la tarjeta y su titular (*Tarjeta 1234 · NOMBRE*).
+
 *Excel histórico:* pegá las filas copiadas del Excel con columnas separadas por tab, en el orden que indica la propia pantalla (Periodo, Cuenta, Categoría, Subcategoría, CC, Fecha, Contraparte, Detalle, Ingreso, Egreso).
 
 ## 7. Vencimientos y tarjeta

@@ -310,6 +310,68 @@ describe('parseMacro', () => {
   });
 });
 
+describe('parseTarjetaGalicia', () => {
+  // Mismo formato que el resumen real (copiado del PDF), con datos de personas inventados.
+  const raw = [
+    'DETALLE DEL CONSUMO',
+    'FECHA REFERENCIA CUOTA COMPROBANTE PESOS DÓLARES',
+    '25-09-26 SOUTH AMERICAN COPACAB BRL 495,72 013435 96,98',
+    '27-09-26 K DL*UberRides BRL 20,94 386386 4,09',
+    '13-10-26 K SUPERMERCADO DON LUIS 111955 17.462,75',
+    '',
+    'TARJETA 1111 Total Consumos de JUANA PEREZ 17.462,75 101,07',
+    '',
+    '07-08-26 * LIBRERIA NORTE-NORTELASH 03/03 465539 51.233,00',
+    '',
+    'Resumen N° VI00000000000000000',
+    'Tarjeta Crédito VISA',
+    'Página 2 / 6',
+    '',
+    'DETALLE DEL CONSUMO',
+    '27-09-26 K OPENAI *CHATGPT in1UKGsbCUSD 6,00 794253 6,00',
+    'TARJETA 2222 Total Consumos de ANA GOMEZ 51.233,00 6,00',
+    '',
+    '01-10-26 K CORRESUR 000000370484837 000001 3.574,20',
+    '04-10-26 F UBER *TRIP HELP.UBER.COM EUR 19,75 720722 22,51',
+    '11-10-26 K NETFLIX.COM 705960431USD 16,92 728209 16,92',
+    '15-10-26 * SAN CRISTOBAL 1010132065921-001-007 080853 84.009,00',
+    '',
+    'TARJETA 3333 Total Consumos de LUIS GOMEZ 87.583,20 39,43',
+    '',
+    '22-10-26 IMPUESTO DE SELLOS $ 4.244,70',
+    '22-10-26 IIBB PERCEP-BSAS 2,00%( 28856,66) 577,13',
+    '22-10-26 IVA RG 4240 21%( 28856,66) 6.059,89',
+    '22-10-26 DB.RG 5617 30% ( 337291,78 ) 101.187,53',
+    'TOTAL A PAGAR 362.013,88 221,03',
+  ].join('\n');
+
+  it('importa los consumos en pesos con fecha de consumo, cuota y titular en el Detalle, y los impuestos uno por línea', () => {
+    const res = win.parseTarjetaGalicia(raw, '2026-11-05');
+    const resumen = res.rows.map(r => [r.fechaConsumo, r.proveedor, r.cuota, r.monto, r.tipo]);
+    expect(resumen).toEqual([
+      ['13-10-26', 'SUPERMERCADO DON LUIS', '', -17462.75, 'Tarjeta 1111 · JUANA PEREZ'],
+      ['07-08-26', 'LIBRERIA NORTE-NORTELASH', '3/3', -51233, 'Tarjeta 2222 · ANA GOMEZ'],
+      ['01-10-26', 'CORRESUR', '', -3574.2, 'Tarjeta 3333 · LUIS GOMEZ'],
+      ['15-10-26', 'SAN CRISTOBAL', '', -84009, 'Tarjeta 3333 · LUIS GOMEZ'],
+      ['22-10-26', 'IMPUESTO DE SELLOS', '', -4244.7, ''],
+      ['22-10-26', 'IIBB PERCEP-BSAS 2,00%', '', -577.13, ''],
+      ['22-10-26', 'IVA RG 4240 21%', '', -6059.89, ''],
+      ['22-10-26', 'DB.RG 5617 30%', '', -101187.53, ''],
+    ]);
+    expect(res.rows.every(r => r.fecha === '05-11-26')).toBe(true);
+    expect(res.rows[0]).toMatchObject({ egreso: '17.462,75', ingreso: '' });
+  });
+
+  it('omite los consumos en dólares (cualquier moneda extranjera) y los cuenta', () => {
+    expect(win.parseTarjetaGalicia(raw, '2026-11-05').omitidas).toBe(5);
+  });
+
+  it('una devolución (importe con "-") entra como ingreso', () => {
+    const res = win.parseTarjetaGalicia('20-10-26 K DEVOLUCION TIENDA 123456 -1.500,00', '2026-11-05');
+    expect(res.rows[0]).toMatchObject({ proveedor: 'DEVOLUCION TIENDA', monto: 1500, ingreso: '1.500,00' });
+  });
+});
+
 describe('parseSantander (cuenta)', () => {
   it('agrupa por bloques de fecha y extrae proveedor desde "De X/Y" o desde el tipo', () => {
     const raw = [

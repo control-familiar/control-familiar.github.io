@@ -21,7 +21,7 @@ describe('Importar: opciones según los importadores de la familia', () => {
     expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'provincia', 'macro', 'tarjeta', 'excel']);
     win.STATE.importEntidad = 'tarjeta';
     win.render();
-    expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'santander', 'provincia', 'mercadopago']);
+    expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'santander', 'provincia', 'mercadopago', 'galicia']);
   });
 
   it('no muestra los que la familia tiene ocultos (y un banco de tarjeta se oculta aparte de su cuenta)', () => {
@@ -29,11 +29,11 @@ describe('Importar: opciones según los importadores de la familia', () => {
     win.STATE.importEntidad = 'tarjeta';
     win.render();
     expect(opciones(win, 'imp-entidad')).toEqual(['mp', 'santander', 'nacion', 'macro', 'tarjeta']);
-    expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'provincia', 'mercadopago']);
+    expect(opciones(win, 'imp-banco')).toEqual(['nacion', 'provincia', 'mercadopago', 'galicia']);
   });
 
   it('sin ningún banco de tarjeta visible, no aparece "Tarjeta de Crédito"', () => {
-    win.STATE.importadoresOcultos = ['tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago'];
+    win.STATE.importadoresOcultos = ['tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'tarjeta_galicia'];
     win.render();
     expect(opciones(win, 'imp-entidad')).not.toContain('tarjeta');
   });
@@ -100,7 +100,7 @@ describe('Importadores: carga y edición del superadmin', () => {
 
   it('Administración muestra un tilde por importador (tildado = visible)', () => {
     const tildes = [...win.document.querySelectorAll('[data-action="importador-alternar"]')];
-    expect(tildes).toHaveLength(10);
+    expect(tildes).toHaveLength(11);
     expect(tildes.find(t => t.getAttribute('data-id') === 'excel').checked).toBe(false);
     expect(tildes.find(t => t.getAttribute('data-id') === 'mp').checked).toBe(true);
     expect(win.document.getElementById('app').textContent).toContain('Tarjeta de Crédito · Nación');

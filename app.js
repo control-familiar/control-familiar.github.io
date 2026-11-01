@@ -1366,6 +1366,75 @@ function parseTarjeta(raw, vencimientoStr){
   return rows;
 }
 
+// Resumen de Tarjeta de Crédito Galicia: una línea por consumo, "dd-mm-aa [K|*|F] DESCRIPCIÓN [cuota nn/nn]
+// [moneda importe-original] COMPROBANTE IMPORTE". Si trae moneda extranjera (USD, BRL, EUR...) el importe va
+// en la columna DÓLARES: se omite y se avisa, como en Mercado Pago. Los impuestos y percepciones del final
+// ("IVA RG 4240 21%( 28856,66) 6.059,89") entran uno por línea, en pesos. Los consumos de cada tarjeta
+// terminan en "TARJETA 9359 Total Consumos de NOMBRE": eso va al Detalle de los consumos de arriba.
+function parseTarjetaGalicia(raw, vencimientoStr){
+  var lines = raw.split('\n').map(function(l){ return l.replace(/\r$/,'').trim(); }).filter(function(l){ return l.length>0; });
+  var reFecha = /^(\d{2})-(\d{2})-(\d{2})\s+(.*)$/;
+  var reImporteFinal = /(?:^|\s|\$)(-?)(\d+(?:\.\d{3})*,\d{2})(-?)$/;
+  var reMonedaExtranjera = /(USD|U\$S|BRL|EUR|GBP|CLP|UYU|PYG|COP|MXN)\s+\d[\d.]*,\d{2}/;
+  var reTotalTarjeta = /^TARJETA\s+(\d+)\s+Total Consumos de\s+(.+?)\s+-?\d[\d.]*,\d{2}/i;
+  var reNumeroFinal = /\s+(?:\d{5,}|[\d-]{6,})$/;
+  var reCuotaFinal = /\s+(\d{2})\/(\d{2})$/;
+
+  var vf = (vencimientoStr||'').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  var fechaOut = vf ? (vf[3]+'-'+vf[2]+'-'+vf[1].slice(2)) : (vencimientoStr||'').trim();
+
+  var rows = [];
+  var sinTitular = []; // consumos todavía sin su "Total Consumos de ..."
+  var omitidas = 0;
+  lines.forEach(function(line){
+    var mt = line.match(reTotalTarjeta);
+    if(mt){
+      var titular = 'Tarjeta '+mt[1]+' · '+mt[2].replace(/\s+/g,' ').trim();
+      sinTitular.forEach(function(r){ r.tipo = titular; });
+      sinTitular = [];
+      return;
+    }
+    var fm = line.match(reFecha);
+    if(!fm) return;
+    var resto = fm[4];
+    if(/su pago/i.test(resto)) return;
+    var mi = resto.match(reImporteFinal);
+    if(!mi) return;
+    var esImpuesto = /%/.test(resto) || /\$\s*[\d.]+,\d{2}$/.test(resto);
+    if(!esImpuesto && reMonedaExtranjera.test(resto)){ omitidas++; return; }
+
+    var detalle = resto.slice(0, resto.length - mi[0].length)
+      .replace(/^[A-Z*]\s+/, '')            // código de tipo de consumo (K, *, F)
+      .replace(/\(\s*[\d.,]+\s*\)/g, '')     // base imponible de los impuestos
+      .replace(/\$\s*$/, '')
+      .trim();
+    var cuota = '';
+    detalle = detalle.replace(reNumeroFinal, '').replace(reNumeroFinal, '');
+    var mc = detalle.match(reCuotaFinal);
+    if(mc){ cuota = Number(mc[1])+'/'+Number(mc[2]); detalle = detalle.slice(0, mc.index); }
+    detalle = detalle.replace(reNumeroFinal, '').replace(/\s+/g, ' ').trim();
+    if(!detalle) return;
+
+    var val = parseMonto(mi[2]);
+    if(val === null || isNaN(val)) return;
+    var monto = (mi[1]==='-' || mi[3]==='-') ? val : -val; // un consumo es egreso; con "-" es una devolución
+
+    var fila = {
+      fecha: fechaOut,
+      fechaConsumo: fm[1]+'-'+fm[2]+'-'+fm[3],
+      proveedor: detalle,
+      tipo: '',
+      cuota: cuota,
+      monto: monto,
+      ingreso: monto>0 ? formatMonto(monto) : '',
+      egreso: monto<0 ? formatMonto(monto) : ''
+    };
+    rows.push(fila);
+    if(!esImpuesto) sinTitular.push(fila);
+  });
+  return { rows: rows, omitidas: omitidas };
+}
+
 var MESES_ABR_MAP = {ene:'01',feb:'02',mar:'03',abr:'04',may:'05',jun:'06',jul:'07',ago:'08',sep:'09',set:'09',oct:'10',nov:'11',dic:'12'};
 
 // Resumen de Tarjeta de Crédito Mercado Pago: cada fila trae su propia fecha (dd/mmm, sin año) y
@@ -1783,7 +1852,7 @@ function parseExcelHistorico(raw){
 // tarjeta ("tarjeta_<banco>") se eligen en pantalla como "Tarjeta de Crédito" + banco. Agregar un banco =
 // parser acá + fila en la tabla (schema.sql).
 var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia', 'macro',
-  'tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'excel'];
+  'tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'tarjeta_galicia', 'excel'];
 function esImportadorTarjeta(codigo){ return codigo.indexOf('tarjeta_')===0; }
 var IMPORTADORES_SIN_PARSER_AVISADOS = {};
 // Los que ve la familia: activos, con parser, no ocultos para ella y (los de tarjeta) con Tarjetas prendida.
@@ -1825,6 +1894,10 @@ function runParser(){
       var anioMp = /^\d{4}/.test(venc.trim()) ? venc.trim().slice(2,4) : '26';
       var resMp = parseTarjetaMercadoPago(raw, anioMp, venc);
       return { rows: resMp.rows, error: null, omitidas: resMp.omitidas };
+    }
+    if(banco === 'galicia'){
+      var resGalicia = parseTarjetaGalicia(raw, venc);
+      return { rows: resGalicia.rows, error: null, omitidas: resGalicia.omitidas };
     }
     var rows = (banco === 'santander' || banco === 'nacion') ? parseTarjetaResumen(raw, venc) : parseTarjeta(raw, venc);
     return { rows: rows, error: null };
