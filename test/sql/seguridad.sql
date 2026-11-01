@@ -39,6 +39,7 @@ declare
   rec_a uuid; rec_b uuid;
   hace2 date := (date_trunc('month', current_date) - interval '2 months')::date;  -- mes de hace dos meses (día 1)
   nuevo uuid;
+  mov_audit uuid;
   fc uuid := gen_random_uuid();  -- familia que no existe (restaurar una familia borrada)
   resultado jsonb;
 begin
@@ -164,6 +165,21 @@ begin
       raise exception 'FALLA: el insert sin familia_id no quedó en la familia de A';
     end if;
     ok := array_append(ok, 'A: insert sin familia_id queda en su familia');
+
+    -- auditoría (A1): quién y cuándo lo pone la base, aunque la app mande otra cosa, y no se cambia al editar
+    insert into public.movimientos (fecha, egreso, creado_por, created_at)
+      values (current_date, 10, ua2, '2020-01-01') returning id into mov_audit;
+    if (select creado_por from public.movimientos where id = mov_audit) is distinct from ua
+       or (select created_at from public.movimientos where id = mov_audit) < now() - interval '1 minute' then
+      raise exception 'FALLA: el movimiento no quedó cargado por A, ahora';
+    end if;
+    update public.movimientos set creado_por = ua2, created_at = '2020-01-01', egreso = 11 where id = mov_audit;
+    if (select creado_por from public.movimientos where id = mov_audit) is distinct from ua
+       or (select created_at from public.movimientos where id = mov_audit) < now() - interval '1 minute'
+       or (select egreso from public.movimientos where id = mov_audit) <> 11 then
+      raise exception 'FALLA: al editar un movimiento se pudo cambiar quién o cuándo lo cargó';
+    end if;
+    ok := array_append(ok, 'A: quién y cuándo cargó un movimiento lo pone la base y no se cambia al editar');
 
     begin
       insert into public.centros (familia_id, codigo, nombre) values (fb, 'X', 'Intruso');
@@ -545,13 +561,15 @@ begin
     resultado := public.restaurar_familia(fa, jsonb_build_object(
       'centros', jsonb_build_array(jsonb_build_object('id', nuevo, 'familia_id', fa, 'codigo', 'R', 'nombre', 'Restaurado')),
       'movimientos', jsonb_build_array(jsonb_build_object('id', mov_a, 'familia_id', fa, 'fecha', current_date,
-        'centro_id', cen_a, 'egreso', 100, 'detalle', 'restaurado')),
+        'centro_id', cen_a, 'egreso', 100, 'detalle', 'restaurado', 'creado_por', ua2, 'created_at', '2020-01-01')),
       'familia_config', jsonb_build_array(jsonb_build_object('familia_id', fa, 'clave', 'arca_cuit', 'valor', '20111111111'))));
     if resultado <> '{"centros": 1, "movimientos": 1, "familia_config": 1}'::jsonb then
       raise exception 'FALLA: restaurar_familia() devolvió %', resultado;
     end if;
     if (select detalle from public.movimientos where id = mov_a) is distinct from 'restaurado'
        or (select tarjeta from public.movimientos where id = mov_a) is distinct from false
+       or (select creado_por from public.movimientos where id = mov_a) is distinct from ua2
+       or (select created_at from public.movimientos where id = mov_a) <> '2020-01-01'
        or not exists (select 1 from public.centros where id = nuevo and familia_id = fa)
        or (select valor from public.familia_config where familia_id = fa and clave = 'arca_cuit') <> '20111111111' then
       raise exception 'FALLA: restaurar_familia() no aplicó bien los cambios';
@@ -567,7 +585,9 @@ begin
         jsonb_build_object('familia_id', fc, 'importador_codigo', 'excel'),
         jsonb_build_object('familia_id', fc, 'importador_codigo', '__ya_no_existe')),
       -- su titular no es miembro de C: el centro vuelve sin titular en vez de fallar
-      'centros', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'codigo', 'C1', 'nombre', 'Centro C', 'titular_id', ua))));
+      'centros', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'codigo', 'C1', 'nombre', 'Centro C', 'titular_id', ua)),
+      -- quien lo cargó tampoco es miembro de C: el movimiento vuelve sin ese dato
+      'movimientos', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'familia_id', fc, 'fecha', current_date, 'egreso', 5, 'creado_por', ua))));
     if not exists (select 1 from public.familias where id = fc and nombre = '__test C__')
        or not exists (select 1 from public.categorias where familia_id = fc) then
       raise exception 'FALLA: restaurar_familia() no recreó la familia borrada';
@@ -577,6 +597,9 @@ begin
     end if;
     if not exists (select 1 from public.centros where familia_id = fc and codigo = 'C1' and titular_id is null) then
       raise exception 'FALLA: restaurar_familia() no dejó sin titular un centro cuyo titular no es de la familia';
+    end if;
+    if not exists (select 1 from public.movimientos where familia_id = fc and egreso = 5 and creado_por is null) then
+      raise exception 'FALLA: restaurar_familia() no dejó sin "cargado por" un movimiento de alguien que no es de la familia';
     end if;
     ok := array_append(ok, 'superadmin: restaurar_familia() recrea una familia que ya no existe (centros sin titular si el titular no es miembro)');
 

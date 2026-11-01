@@ -266,3 +266,33 @@ describe('Movimientos: edición en línea', () => {
     expect(win.obtenerSaldos().filas.find(f => f.id === 'c-ef').saldo).toBe(-100);
   });
 });
+
+describe('Movimientos: auditoría (A1)', () => {
+  const abrirEdicion = async (mov) => {
+    const win = loadApp();
+    seedBase(win);
+    win.STATE.movimientos = [Object.assign({ id: 'm1', fecha: '2026-10-30', centroId: 'c-ef', proveedor: 'Kiosco', ingreso: 0, egreso: 50 }, mov)];
+    win.STATE.activeTab = 'movimientos';
+    await win.handleAction('edit-mov', 'm1');
+    return win.document.querySelector('.auditoria-mov');
+  };
+
+  it('al editar muestra quién lo cargó y cuándo', async () => {
+    const d = new Date(2026, 9, 31, 17, 5);
+    const linea = await abrirEdicion({ createdAt: d.toISOString(), creadoPor: 'u-ana' });
+    expect(linea.textContent).toContain('Cargado por Ana el ' + d.toLocaleDateString('es-AR') + ' a las 17:05');
+  });
+
+  it('sin quién (anteriores a la auditoría) muestra solo cuándo; sin fecha no muestra nada', async () => {
+    const linea = await abrirEdicion({ createdAt: new Date(2026, 9, 1, 9, 0).toISOString(), creadoPor: '' });
+    expect(linea.textContent).toMatch(/^ ?Cargado el .* a las 09:00$/);
+    expect(await abrirEdicion({})).toBe(null);
+  });
+
+  it('lee created_at y creado_por de la base', () => {
+    const win = loadApp();
+    const m = win.fromDbMovimiento({ id: 'm1', fecha: '2026-10-30', created_at: '2026-10-31T20:05:00Z', creado_por: 'u-ana' });
+    expect(m.createdAt).toBe('2026-10-31T20:05:00Z');
+    expect(m.creadoPor).toBe('u-ana');
+  });
+});

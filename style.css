@@ -457,6 +457,7 @@ footer.small{ margin-top:28px; font-size:11px; color:var(--ink-soft); text-align
 .aviso-flotante .link{ color:var(--accent-soft); font-weight:600; padding:0; }
 .aviso-flotante .aviso-cerrar{ color:var(--paper); opacity:.7; }
 .modal-card h2{ font-size:16px; margin-bottom:14px; }
+.auditoria-mov{ font-size:12px; color:var(--ink-soft); margin:-8px 0 14px; display:flex; align-items:center; gap:6px; }
 
 /* Grilla de 2 columnas para formularios largos (Nuevo/Editar movimiento, edición masiva) —
    evita que se apilen 8-13 campos en una sola columna sin agrupar. Colapsa a 1 columna en mobile. */

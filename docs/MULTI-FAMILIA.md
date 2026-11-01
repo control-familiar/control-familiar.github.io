@@ -236,6 +236,19 @@ vencimiento más, que se marca pagado, salteado o se deja pendiente. No es parte
 - Backup y restauración: `vencimientos_recurrentes` entra en las dos, antes de `vencimientos` (que la referencia).
 - Dummy: Familia Demo tiene "Patín" (desde el mes pasado, sin categoría) y "Expensas" (desde este mes, en Casa).
 
+## Auditoría de movimientos (A1)
+
+- Cada movimiento guarda **quién lo cargó y cuándo**: `movimientos.creado_por` (miembro de la familia, FK compuesta a
+  `miembros`, `on delete set null`) y `created_at`. Solo movimientos, solo el alta: no se registran cambios ni borrados.
+- Lo completa la base con el trigger `movimientos_auditar` (`auditar_movimiento()`): en el insert pone `auth.uid()` y
+  `now()` aunque la app mande otra cosa; en el update conserva los valores de antes. La app no los manda.
+- El superadmin no carga movimientos; al restaurar un backup se conserva lo que trae, y si quien lo cargó ya no es
+  miembro de la familia, el movimiento vuelve sin ese dato (como el titular de un centro).
+- Los movimientos anteriores quedan sin `creado_por`. En la app, al editar un movimiento (en pesos o en dólares) se ve
+  "Cargado por _nombre_ el dd/mm/aaaa a las hh:mm" (sin "por" si no se sabe quién). Lo cargado en la sesión lo
+  muestra recién al volver a entrar.
+- Migración: `migrations/2026-11-01_auditoria_movimientos.sql`.
+
 ## Backup (D9)
 
 - El backup diario a Drive es **global** (toda la base, con la service role key), y solo existe a nivel
@@ -508,6 +521,7 @@ Fuera de las fases: **vencimientos recurrentes** (V1–V6) ✅ hecho.
 | V4 | Categoría en vencimientos | Sí, en la plantilla y en cada vencimiento; el movimiento al pagar sale categorizado |
 | V5 | "Este mes no se paga" | Estado `salteado`, solo para ese mes (se puede volver a pendiente) |
 | V6 | Movimiento ya cargado | Aviso en la lista y en el modal de pagar (mismo mes + categoría/subcategoría, egreso); sin vincular |
+| A1 | Auditoría | Solo movimientos: quién y cuándo se cargó (lo pone un trigger); sin historial de cambios ni borrados |
 | S1 | Superadmin sobre datos | Solo lectura (sí edita configuración) |
 | S2 | Interfaz del superadmin | Misma app + selector + pestaña Administración |
 | S3 | Pantalla de familias/miembros | Solo muestra; altas por script |

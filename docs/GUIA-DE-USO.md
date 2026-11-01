@@ -97,6 +97,7 @@ Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) 
 ### Listado de Movimientos
 - **Filtros:** búsqueda por texto y filtros múltiples (tildás varias opciones) de Centro, Categoría, Subcategoría y Mes. *Solo incompletos* muestra los que no tienen categoría; *Solo tarjeta* los de tarjeta. **Limpiar filtros** los reinicia.
 - **Paginación** de 50 en 50.
+- **Quién lo cargó:** al editar un movimiento, debajo del título dice quién lo cargó y cuándo (*Cargado por Ana el 31/10/2026 a las 17:45*). Lo pone la base y no se puede cambiar. En los cargados antes de noviembre de 2026 dice solo cuándo.
 - **Edición múltiple:** seleccioná varios movimientos y editalos en lote (por ejemplo, asignarles la misma categoría).
 - **Agrupar tarjeta:** los consumos de un mismo resumen se pueden agrupar y desplegar.
 - **Exportar a Excel** lo filtrado.

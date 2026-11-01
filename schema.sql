@@ -152,12 +152,33 @@ create table movimientos (
   moneda text not null default 'ARS' check (moneda in ('ARS','USD')),
   cambio_id uuid, -- une las dos patas (USD y pesos) de una compra/venta de dólares
   created_at timestamptz default now(),
+  creado_por uuid, -- miembro de la familia que lo cargó (A1); lo completa la base, null en los anteriores
   unique (familia_id, id),
   foreign key (familia_id, centro_id) references centros(familia_id, id) on delete set null (centro_id),
   foreign key (familia_id, categoria_id) references categorias(familia_id, id) on delete set null (categoria_id),
-  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id)
+  foreign key (familia_id, subcategoria_id) references subcategorias(familia_id, id) on delete set null (subcategoria_id),
+  foreign key (familia_id, creado_por) references miembros(familia_id, user_id) on delete set null (creado_por)
 );
 create index movimientos_cambio_id_idx on movimientos(cambio_id);
+
+-- Auditoría (A1): quién cargó cada movimiento y cuándo lo pone la base, no la app, y al editarlo no se
+-- cambia. El superadmin no carga movimientos: solo restaura, y ahí se conserva lo que trae el backup.
+create function auditar_movimiento() returns trigger
+  language plpgsql set search_path = ''
+as $$
+begin
+  if public.es_superadmin() then return new; end if;
+  if tg_op = 'INSERT' then
+    new.creado_por := auth.uid();
+    new.created_at := now();
+  else
+    new.creado_por := old.creado_por;
+    new.created_at := old.created_at;
+  end if;
+  return new;
+end $$;
+create trigger movimientos_auditar before insert or update on movimientos
+  for each row execute function auditar_movimiento();
 
 -- Vencimientos recurrentes (V1): plantillas de algo que se paga todos los meses. Al abrir la app,
 -- generar_vencimientos_recurrentes() crea el vencimiento de cada mes que falte. Cambiar una plantilla
@@ -675,6 +696,16 @@ begin
                when e ->> 'titular_id' is not null and not exists (
                  select 1 from public.miembros m where m.user_id = (e ->> 'titular_id')::uuid and m.familia_id = p_familia_id)
                then jsonb_set(e, '{titular_id}', 'null'::jsonb)
+               else e end)
+        into filas
+      from jsonb_array_elements(filas) e;
+    end if;
+    -- Lo mismo con quién cargó un movimiento (A1): si ya no es miembro, el movimiento vuelve sin ese dato.
+    if t = 'movimientos' then
+      select jsonb_agg(case
+               when e ->> 'creado_por' is not null and not exists (
+                 select 1 from public.miembros m where m.user_id = (e ->> 'creado_por')::uuid and m.familia_id = p_familia_id)
+               then jsonb_set(e, '{creado_por}', 'null'::jsonb)
                else e end)
         into filas
       from jsonb_array_elements(filas) e;

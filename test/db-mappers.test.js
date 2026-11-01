@@ -48,14 +48,19 @@ describe('movimiento', () => {
       id: 'm1', fecha: '2026-08-09', centroId: 'c1', categoriaId: 'cat1', subcategoriaId: 's1',
       proveedor: 'Netflix', detalle: 'Suscripción mensual', ingreso: 0, egreso: 890,
       tarjeta: true, fechaConsumo: '2026-08-01', tarjetaMarca: 'Visa', cuotas: '3/6', moneda: 'ARS', cambioId: '',
+      createdAt: '', creadoPor: '',
     };
     expect(win.fromDbMovimiento(win.toDbMovimiento(mov))).toEqual(mov);
+    // quién y cuándo lo cargó (A1) los pone la base: la app no los manda
+    const conAuditoria = win.toDbMovimiento(Object.assign({}, mov, { createdAt: '2026-08-09T10:00:00Z', creadoPor: 'u1' }));
+    expect(conAuditoria).not.toHaveProperty('created_at');
+    expect(conAuditoria).not.toHaveProperty('creado_por');
   });
 
   it('un movimiento en dólares conserva moneda y cambio_id; uno en pesos no los manda', () => {
     const usd = {
       id: 'm2', fecha: '2026-08-09', centroId: 'c1', categoriaId: '', subcategoriaId: '', proveedor: 'Compra USD', detalle: '',
-      ingreso: 100, egreso: 0, tarjeta: false, fechaConsumo: '', tarjetaMarca: '', cuotas: '', moneda: 'USD', cambioId: 'k1',
+      ingreso: 100, egreso: 0, tarjeta: false, fechaConsumo: '', tarjetaMarca: '', cuotas: '', moneda: 'USD', cambioId: 'k1', createdAt: '', creadoPor: '',
     };
     const row = win.toDbMovimiento(usd);
     expect(row).toMatchObject({ moneda: 'USD', cambio_id: 'k1' });

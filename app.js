@@ -321,7 +321,7 @@ function toDbMovimiento(m){
   if(m.cambioId) r.cambio_id = m.cambioId;
   return r;
 }
-function fromDbMovimiento(r){ return {id:r.id, fecha:r.fecha, centroId:r.centro_id||'', categoriaId:r.categoria_id||'', subcategoriaId:r.subcategoria_id||'', proveedor:r.proveedor||'', detalle:r.detalle||'', ingreso:Number(r.ingreso)||0, egreso:Number(r.egreso)||0, tarjeta:!!r.tarjeta, fechaConsumo:r.fecha_consumo||'', tarjetaMarca:r.tarjeta_marca||'', cuotas:r.cuotas||'', moneda:r.moneda==='USD'?'USD':'ARS', cambioId:r.cambio_id||''}; }
+function fromDbMovimiento(r){ return {id:r.id, fecha:r.fecha, centroId:r.centro_id||'', categoriaId:r.categoria_id||'', subcategoriaId:r.subcategoria_id||'', proveedor:r.proveedor||'', detalle:r.detalle||'', ingreso:Number(r.ingreso)||0, egreso:Number(r.egreso)||0, tarjeta:!!r.tarjeta, fechaConsumo:r.fecha_consumo||'', tarjetaMarca:r.tarjeta_marca||'', cuotas:r.cuotas||'', moneda:r.moneda==='USD'?'USD':'ARS', cambioId:r.cambio_id||'', createdAt:r.created_at||'', creadoPor:r.creado_por||''}; }
 function toDbVencimiento(v){
   return {id:v.id, concepto:v.concepto, fecha:v.fecha, monto:Number(v.monto)||0, centro_id:v.centroId||null,
     categoria_id:v.categoriaId||null, subcategoria_id:v.subcategoriaId||null, estado:v.estado||'pendiente',
@@ -2888,6 +2888,7 @@ function renderMovimientos(){
   } else if(editing || STATE.nuevoMovAbierto){
     MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card modal-card-lg">'+
       '<h2>'+(editing?'Editar movimiento':'Nuevo movimiento')+'</h2>'+
+      auditoriaMovimientoHtml(editing)+
       camposMov(e, subOptionsArr)+
         '<button data-action="save-mov" data-id="'+(editing?editing.id:'')+'">'+(editing?'Guardar cambios':'Agregar')+'</button>'+
         '<button class="secondary" data-action="cancel-edit">Cancelar</button>'+
@@ -3439,6 +3440,17 @@ function titularDeCentro(c){
 function nombreMiembro(userId){
   var m = STATE.miembrosFamilia.find(function(x){ return x.userId===userId; });
   return m ? m.nombre : '';
+}
+// Auditoría (A1): "Cargado por Ana el 31/10/2026 a las 17:45", al editar un movimiento. Lo cargado en esta
+// sesión lo trae recién al volver a entrar (lo pone la base); los anteriores a A1 no tienen quién.
+function auditoriaMovimientoHtml(m){
+  if(!m || !m.createdAt) return '';
+  var d = new Date(m.createdAt);
+  if(isNaN(d.getTime())) return '';
+  var quien = m.creadoPor ? nombreMiembro(m.creadoPor) : '';
+  var hora = pad2(d.getHours())+':'+pad2(d.getMinutes());
+  return '<div class="auditoria-mov"><i class="bi bi-clock-history"></i> Cargado'+(quien ? ' por '+esc(quien) : '')+
+    ' el '+d.toLocaleDateString('es-AR')+' a las '+hora+'</div>';
 }
 // Saldos agrupados: un grupo por titular (por nombre) y al final "Sin titular", que suma también lo que
 // no tiene Centro de Costo. Cada grupo: {titularId, titulo, total, filas}; solo los que tienen algo.
@@ -4677,6 +4689,7 @@ function renderDolares(){
   if(editing){
     MODAL_HTML = '<div class="modal-overlay" data-modal-backdrop="edit"><div class="modal-card">'+
       '<h2>Editar movimiento en dólares</h2>'+
+      auditoriaMovimientoHtml(editing)+
       campoDolares(e, true)+
       '<div class="fields-row" style="margin-top:14px">'+
         '<button data-action="save-dolares" data-id="'+editing.id+'">Guardar cambios</button>'+
