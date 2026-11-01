@@ -638,21 +638,34 @@ async function mostrarApp(){
   if(funcionActiva('dolares') && (STATE.activeTab==='dolares' || STATE.activeTab==='resumen' || STATE.activeTab==='saldos' || STATE.activeTab==='flujo') && STATE.dolarBlueCompra===null && !STATE.dolarBlueCargando) obtenerDolarBlue();
 }
 
+// msg es siempre un error (en rojo); mientras se inicia sesión el aviso va en el botón (ver loginEnCurso).
 function mostrarLogin(msg){
+  loginEnCurso(false);
   document.getElementById('app').style.display = 'none';
   document.getElementById('loginWrap').style.display = 'flex';
   document.getElementById('loginMsg').innerHTML = msg ? '<div class="msg err" style="margin-bottom:10px">'+msg.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];})+'</div>' : '';
 }
 
+function loginEnCurso(enCurso){
+  var btn = document.getElementById('btnLogin');
+  if(!btn) return;
+  btn.disabled = enCurso;
+  btn.innerHTML = enCurso ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Iniciando sesión...' : 'Iniciar sesión';
+}
+
 async function intentarLogin(){
+  if((document.getElementById('btnLogin')||{}).disabled) return; // ya hay uno en curso (ej. Enter de nuevo)
   var email = document.getElementById('login-email').value.trim();
   var password = document.getElementById('login-password').value;
   if(!email || !password){ mostrarLogin('Completá email y contraseña.'); return; }
   // Antes de iniciar sesión: ahí Supabase guarda la sesión, en el almacén que corresponde al tilde.
   var recordar = !!(document.getElementById('login-recordar')||{checked:true}).checked;
   try{ localStorage.setItem('controlRecordarme', recordar ? 'true' : 'false'); }catch(e){}
-  mostrarLogin('Iniciando sesión...');
-  var res = await sb.auth.signInWithPassword({ email: email, password: password });
+  document.getElementById('loginMsg').innerHTML = '';
+  loginEnCurso(true);
+  var res;
+  try{ res = await sb.auth.signInWithPassword({ email: email, password: password }); }
+  catch(e){ res = { error: { message: 'no hay conexión. Revisá internet y probá de nuevo.' } }; }
   if(res.error){ mostrarLogin('No pudimos iniciar sesión: ' + res.error.message); return; }
   STATE.usuarioEmail = (res.data && res.data.user) ? res.data.user.email : email;
   await mostrarApp();

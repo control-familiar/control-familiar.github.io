@@ -69,3 +69,40 @@ describe('Login: Recordarme', () => {
     expect(otraVez.document.getElementById('login-recordar').checked).toBe(otraVez.recordarSesion());
   });
 });
+
+describe('Login: "Iniciando sesión..."', () => {
+  const completar = (win) => {
+    win.document.getElementById('login-email').value = 'a@ejemplo.com';
+    win.document.getElementById('login-password').value = 'x';
+  };
+
+  it('mientras se inicia sesión el aviso va en el botón (deshabilitado), no como mensaje de error', async () => {
+    const win = loadApp();
+    let duranteBoton = null, duranteMsg = null;
+    win.sb = { auth: { signInWithPassword: async () => {
+      const btn = win.document.getElementById('btnLogin');
+      duranteBoton = { disabled: btn.disabled, texto: btn.textContent };
+      duranteMsg = win.document.getElementById('loginMsg').innerHTML;
+      return { error: { message: 'Invalid login credentials' } };
+    } } };
+    completar(win);
+    await win.intentarLogin();
+    expect(duranteBoton.disabled).toBe(true);
+    expect(duranteBoton.texto).toContain('Iniciando sesión');
+    expect(duranteMsg).toBe('');
+    // con error: mensaje en rojo y el botón vuelve a estar disponible
+    const btn = win.document.getElementById('btnLogin');
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe('Iniciar sesión');
+    expect(win.document.querySelector('#loginMsg .msg.err').textContent).toContain('Invalid login credentials');
+  });
+
+  it('sin conexión (la llamada falla) avisa y vuelve a habilitar el botón', async () => {
+    const win = loadApp();
+    win.sb = { auth: { signInWithPassword: async () => { throw new Error('Failed to fetch'); } } };
+    completar(win);
+    await win.intentarLogin();
+    expect(win.document.getElementById('btnLogin').disabled).toBe(false);
+    expect(win.document.getElementById('loginMsg').textContent).toContain('no hay conexión');
+  });
+});
