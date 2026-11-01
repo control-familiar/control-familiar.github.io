@@ -26,7 +26,7 @@ var sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], vencimientos: [], vencRecurrentes: [], vencDraft: null, usdtMovimientos: [], movimientosUsd: [], deudas: [], facturas: [], configuracion: [], facturaLoadingId:null, activeTab: 'resumen', editing: null, ready:false,
   importEntidad:'mp', importBanco:'nacion', importVencimiento:'', importTarjetaMarca:'', importRaw:'', importPreview:null, importPreviewExcel:null, importMsg:null,
   bulkColorCatMsg:null, bulkColorCatAbierto:false, confirmState:null, subDeleteState:null, vencPagarState:null, movFormMsg:null, movFieldErrors:null,
-  filtros:{centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false},
+  filtros:{centro:[], categoria:[], subcategoria:[], mes:[], dia:'', texto:'', soloIncompletos:false, soloTarjeta:false},
   resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, filtrosResumenAbiertos:null, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
   vencFormMsg:null, vrecFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
   usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
@@ -600,7 +600,7 @@ async function cargarSesion(){
 async function elegirFamilia(familiaId){
   STATE.familiaSeleccionadaId = familiaId;
   try{ localStorage.setItem('controlFamiliaSuperadmin', familiaId); }catch(e){}
-  STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false};
+  STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], dia:'', texto:'', soloIncompletos:false, soloTarjeta:false};
   STATE.editing = null; STATE.movSeleccionados = []; STATE.movPaginaActual = 1; STATE.reglasPaginaActual = 1;
   STATE.incompletosSnapshotIds = null; STATE.dbError = null; STATE.configMsg = null; STATE.importadoresMsg = null;
   STATE.ready = false;
@@ -2671,7 +2671,9 @@ function movimientosFiltrados(f){
     if(esMovimientoPendiente(m)) return false; // los movimientos con fecha futura se muestran en Vencimientos, no acá
     if(f.centro.length && f.centro.indexOf(m.centroId)===-1) return false;
     if(f.categoria.length && f.categoria.indexOf(m.categoriaId)===-1) return false;
-    if(f.mes.length && f.mes.indexOf((m.fecha||'').slice(0,7))===-1) return false;
+    // Un día elegido manda sobre el filtro de Mes (que lo incluye o lo contradice).
+    if(f.dia){ if(m.fecha!==f.dia) return false; }
+    else if(f.mes.length && f.mes.indexOf((m.fecha||'').slice(0,7))===-1) return false;
     if(f.subcategoria.length){
       var valorSub = m.subcategoriaId || '__vacio__';
       if(f.subcategoria.indexOf(valorSub)===-1) return false;
@@ -2815,11 +2817,11 @@ function renderMovimientos(){
 
     var claseFila = incompleto ? 'fila-incompleta' : '';
     var tituloFila = incompleto ? ' title="Falta: '+esc(faltan.join(', '))+'"' : '';
-    var fechaFiltrable = !f.soloIncompletos && (m.fecha||'').slice(0,7);
+    var fechaFiltrable = !f.soloIncompletos && (m.fecha||'');
     idsCheckboxVisibles.push(m.id);
     return '<tr'+(claseFila?' class="'+claseFila+'"':'')+tituloFila+'>'+
       '<td data-label=""><input type="checkbox" class="chk-select-mov" data-mov-id="'+m.id+'" '+(seleccionados.indexOf(m.id)!==-1?'checked':'')+'></td>'+
-      '<td class="mono'+(fechaFiltrable?' celda-filtrable':'')+'" data-label="Fecha"'+(fechaFiltrable?' data-filter-field="mes" data-filter-value="'+esc(fechaFiltrable)+'" title="Filtrar por este Mes"':'')+'>'+(incompleto?'<i class="bi bi-exclamation-triangle"></i> ':'')+esc(fechaISOaDDMMAAAA(m.fecha)||m.fecha||'')+'</td>'+
+      '<td class="mono'+(fechaFiltrable?' celda-filtrable':'')+'" data-label="Fecha"'+(fechaFiltrable?' data-filter-field="dia" data-filter-value="'+esc(fechaFiltrable)+'" title="Filtrar por este día"':'')+'>'+(incompleto?'<i class="bi bi-exclamation-triangle"></i> ':'')+esc(fechaISOaDDMMAAAA(m.fecha)||m.fecha||'')+'</td>'+
       celdaCentro + celdaCategoria + celdaSubcategoria + celdaProveedor + celdaDetalle +
       '<td class="num ingreso" data-label="Ingreso">'+(Number(m.ingreso)?fmtMonto(m.ingreso):'')+'</td>'+
       '<td class="num egreso" data-label="Egreso">'+(Number(m.egreso)?fmtMonto(m.egreso):'')+'</td>'+
@@ -2985,7 +2987,7 @@ function renderMovimientos(){
       : '')+
   '</div>' : '';
 
-  var hayFiltrosActivosMov = f.centro.length || f.categoria.length || f.subcategoria.length || f.mes.length || f.texto || f.soloIncompletos || f.soloTarjeta;
+  var hayFiltrosActivosMov = f.centro.length || f.categoria.length || f.subcategoria.length || f.mes.length || f.dia || f.texto || f.soloIncompletos || f.soloTarjeta;
   // En mobile los filtros arrancan colapsados detrás de un ícono, para no ocupar toda la pantalla
   // apenas se entra a Movimientos; en escritorio siempre van expandidos.
   var filtrosColapsados = esVistaMobile() && !STATE.filtrosMovAbiertos;
@@ -3003,6 +3005,7 @@ function renderMovimientos(){
       '<div class="field"><label>Centro de Costo</label>'+renderMultiSelect('ff-centro', centroOptions, f.centro)+'</div>'+
       '<div class="field"><label>Categoría</label>'+renderMultiSelect('ff-categoria', categoriaOptions, f.categoria)+'</div>'+
       '<div class="field"><label>Mes</label>'+renderMultiSelect('ff-mes', mesOptions, f.mes)+'</div>'+
+      '<div class="field"><label for="ff-dia">Día</label><input type="date" id="ff-dia" value="'+esc(f.dia||'')+'"></div>'+
       '<div class="field"><label>Subcategoría</label>'+renderMultiSelect('ff-subcategoria', subcategoriaOptions, f.subcategoria)+'</div>'+
       '<div class="field"><label>Buscar</label><input type="text" id="ff-texto" placeholder="contraparte o detalle" value="'+esc(f.texto)+'" style="width:180px"></div>'+
       '<div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;white-space:nowrap;padding:7px 0">'+
@@ -5064,6 +5067,8 @@ function bindEvents(){
     guardarTamPagina('controlReglasPorPagina', STATE.reglasPorPagina);
     STATE.reglasPaginaActual = 1; render();
   }); }
+  var ffDia = document.getElementById('ff-dia');
+  if(ffDia){ ffDia.addEventListener('change', function(){ STATE.filtros.dia = ffDia.value; STATE.movPaginaActual = 1; render(); }); }
   var ffSoloTarjeta = document.getElementById('ff-solo-tarjeta');
   if(ffSoloTarjeta){ ffSoloTarjeta.addEventListener('change', function(){ STATE.filtros.soloTarjeta = ffSoloTarjeta.checked; STATE.movPaginaActual = 1; render(); }); }
 
@@ -5403,6 +5408,7 @@ function bindEvents(){
       var valorFiltro = celda.getAttribute('data-filter-value');
       if(!valorFiltro) return;
       if(campoFiltro === 'texto') STATE.filtros.texto = valorFiltro;
+      else if(campoFiltro === 'dia') STATE.filtros.dia = valorFiltro;
       else STATE.filtros[campoFiltro] = [valorFiltro];
       STATE.movPaginaActual = 1;
       render();
@@ -5878,7 +5884,7 @@ async function handleAction(action, id){
   // ---- EXPORTAR MOVIMIENTOS A EXCEL ----
   if(action==='exportar-movimientos-excel'){
     try{
-      var f = STATE.filtros || {centro:[], categoria:[], mes:[], texto:'', subcategoria:[], soloIncompletos:false, soloTarjeta:false};
+      var f = STATE.filtros || {centro:[], categoria:[], mes:[], dia:'', texto:'', subcategoria:[], soloIncompletos:false, soloTarjeta:false};
       var listaExport = movimientosFiltrados(f);
 
       var workbook = new ExcelJS.Workbook();
@@ -6050,7 +6056,7 @@ async function handleAction(action, id){
     render(); return;
   }
   if(action==='limpiar-filtros-mov'){
-    STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], texto:'', soloIncompletos:false, soloTarjeta:false};
+    STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], dia:'', texto:'', soloIncompletos:false, soloTarjeta:false};
     STATE.incompletosSnapshotIds = null;
     STATE.movPaginaActual = 1;
     render(); return;
@@ -6079,7 +6085,7 @@ async function handleAction(action, id){
     var frm = STATE.resumenFiltros;
     var partesV = String(id||'').split(':');
     var tipoV = partesV.shift(), valorV = partesV.join(':');
-    STATE.filtros = { centro: frm.centro.slice(), categoria: frm.categoria.slice(), subcategoria:[], mes: frm.mes.slice(),
+    STATE.filtros = { centro: frm.centro.slice(), categoria: frm.categoria.slice(), subcategoria:[], mes: frm.mes.slice(), dia:'',
       texto:'', soloIncompletos:false, soloTarjeta:false };
     if(tipoV==='cat') STATE.filtros.categoria = [valorV];
     if(tipoV==='cen') STATE.filtros.centro = [valorV];

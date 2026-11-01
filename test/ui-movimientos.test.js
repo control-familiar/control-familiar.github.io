@@ -296,3 +296,41 @@ describe('Movimientos: auditoría (A1)', () => {
     expect(m.creadoPor).toBe('u-ana');
   });
 });
+
+describe('Movimientos: filtro por día', () => {
+  let win;
+  const filas = () => [...win.document.querySelectorAll('#tabla-movimientos tbody tr')];
+  beforeEach(() => {
+    win = loadApp();
+    seedBase(win);
+    win.STATE.movimientos = [
+      { id: 'm1', fecha: '2026-06-01', centroId: 'c-ef', proveedor: 'Kiosco', ingreso: 0, egreso: 100 },
+      { id: 'm2', fecha: '2026-06-15', centroId: 'c-ef', proveedor: 'Farmacia', ingreso: 0, egreso: 200 },
+      { id: 'm3', fecha: '2026-07-15', centroId: 'c-ef', proveedor: 'Panadería', ingreso: 0, egreso: 300 }
+    ];
+    win.STATE.activeTab = 'movimientos';
+    win.render();
+  });
+
+  it('clic sobre la Fecha filtra por ese día (no por el mes)', () => {
+    const celda = win.document.querySelector('[data-filter-field="dia"][data-filter-value="2026-06-15"]');
+    celda.dispatchEvent(new win.Event('click', { bubbles: true }));
+    expect(win.STATE.filtros.dia).toBe('2026-06-15');
+    expect(filas()).toHaveLength(1);
+    expect(filas()[0].textContent).toContain('Farmacia');
+    expect(win.document.getElementById('ff-dia').value).toBe('2026-06-15');
+  });
+
+  it('el campo Día filtra, manda sobre el Mes, y "Limpiar filtros" lo borra', () => {
+    win.STATE.filtros.mes = ['2026-07'];
+    win.render();
+    const dia = win.document.getElementById('ff-dia');
+    dia.value = '2026-06-01';
+    dia.dispatchEvent(new win.Event('change'));
+    expect(filas()).toHaveLength(1);
+    expect(filas()[0].textContent).toContain('Kiosco');
+    win.document.querySelector('[data-action="limpiar-filtros-mov"]').click();
+    expect(win.STATE.filtros.dia).toBe('');
+    expect(filas()).toHaveLength(3);
+  });
+});

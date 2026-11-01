@@ -95,7 +95,7 @@ Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) 
 - Después de guardar aparece un aviso con **Deshacer** por unos segundos. La hoja se cierra con *Cancelar*, tocando afuera o deslizándola hacia abajo.
 
 ### Listado de Movimientos
-- **Filtros:** búsqueda por texto y filtros múltiples (tildás varias opciones) de Centro, Categoría, Subcategoría y Mes. *Solo incompletos* muestra los que no tienen categoría; *Solo tarjeta* los de tarjeta. **Limpiar filtros** los reinicia.
+- **Filtros:** búsqueda por texto y filtros múltiples (tildás varias opciones) de Centro, Categoría, Subcategoría y Mes, y un **Día** puntual (si elegís un día, manda sobre el Mes). Tocar una celda de la tabla filtra por ese valor; tocar la Fecha filtra por ese día. *Solo incompletos* muestra los que no tienen categoría; *Solo tarjeta* los de tarjeta. **Limpiar filtros** los reinicia.
 - **Paginación** de 50 en 50.
 - **Quién lo cargó:** al editar un movimiento, debajo del título dice quién lo cargó y cuándo (*Cargado por Ana el 31/10/2026 a las 17:45*). Lo pone la base y no se puede cambiar. En los cargados antes de noviembre de 2026 dice solo cuándo.
 - **Edición múltiple:** seleccioná varios movimientos y editalos en lote (por ejemplo, asignarles la misma categoría).
