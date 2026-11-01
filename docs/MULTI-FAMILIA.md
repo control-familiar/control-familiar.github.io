@@ -147,8 +147,11 @@ Toda configuración personal está asociada a la familia y documentada en la pro
 - Si un usuario deja de ser miembro, sus centros quedan sin titular. Al **cambiarlo de familia**, `alta_miembro.sql` le
   saca primero la titularidad de los centros de la familia anterior (la FK no deja que apunte a otra) y lo avisa.
 - Al restaurar un backup, un centro cuyo titular no es miembro de esa familia vuelve sin titular.
-- **Centro de efectivo por defecto** (R5): el último que se usó para cargar efectivo en ese dispositivo
-  (`localStorage`); antes salía del email.
+- **Centro de efectivo por defecto** (R5, revisada): los centros de efectivo son los de Entidad "Efectivo" (o, si no
+  tienen entidad, "efectivo" en el nombre). En Cargar efectivo viene elegido el centro de efectivo cuyo Titular es el
+  usuario logueado (si tiene varios, el último usado en ese dispositivo, `localStorage`); si no tiene ninguno, el último
+  usado. La lista muestra solo los de efectivo (propios primero) y "Otro…" despliega todos; si la familia no tiene
+  ninguno de efectivo, se ven todos. Antes era solo el último usado en el dispositivo (y en el original, el email).
 - Nada de nombres de personas ni emails escritos en el código.
 
 ## Reglas que hoy están escritas en el código (D6)
@@ -167,7 +170,7 @@ Relevamiento (fase 6) y lo que se decidió:
 | R2 | Todo ingreso de USDT contaba como Sueldo ("el sueldo de Ani") | Cuenta como sueldo solo si su categoría es de tipo Sueldo |
 | R3 | "Categoría B" de Monotributo en los textos | Textos genéricos ("el tope de tu categoría de Monotributo"); la clave conserva su nombre |
 | R4 | Centro por defecto al importar, por códigos `MPF`/`BSF`/`BNF`/`BPF` | Queda siempre vacío: lo elige quien importa |
-| R5 | Centro de efectivo por defecto según el email | El último usado en ese dispositivo (fase 3) |
+| R5 | Centro de efectivo por defecto según el email | El de efectivo (Entidad "Efectivo") cuyo Titular es el usuario logueado; si no, el último usado en el dispositivo. Lista: solo efectivo + "Otro…" |
 | R6 | Titular del centro según la última letra del código | Usuario titular (fase 3, D5) |
 | R7 | Colores de vencimientos según días que faltan | Queda (diseño) |
 | R8 | Ventana de 12 meses del Monotributo | Queda (normativa) |

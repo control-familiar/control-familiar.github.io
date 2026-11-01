@@ -70,7 +70,7 @@ Las marcadas *(opcional)*, igual que Facturación ARCA y Tarjetas y cuotas, apar
 
 Antes de cargar datos, armá la base en **ABM** (cada sección es una subpestaña):
 
-1. **Centros de Costo.** Por cada cuenta: *Código* (ej. `MPF`), *Nombre*, *Color*, *Entidad* (Santander, Nación, Provincia, ICBC, Macro, Galicia, Mercado Pago: muestra el logo en Saldos) y *Moneda* (Pesos, Dólares o Pesos y dólares).
+1. **Centros de Costo.** Por cada cuenta: *Código* (ej. `MPF`), *Nombre*, *Color*, *Entidad* (Santander, Nación, Provincia, ICBC, Macro, Galicia, Mercado Pago, o *Efectivo*: muestra el logo en Saldos) y *Moneda* (Pesos, Dólares o Pesos y dólares).
 2. **Categorías.** Nombre, color y tratamiento en reportes (ver [sección 2](#tratamiento-de-las-categorías-en-reportes)). Para que cada cuenta arranque con su saldo actual, creá una categoría **“Saldo Inicial”** y cargá un movimiento por cuenta con ese monto.
 3. **Subcategorías.** Se crean dentro de una categoría. También se pueden crear al vuelo escribiendo un nombre nuevo en el campo Subcategoría de un movimiento. Al borrar una subcategoría con movimientos, la app permite **reasignarlos** a otra o dejarlos sin subcategoría.
 4. **Reglas de categorización** (opcional, ahorra tiempo al importar): asociá un texto de contraparte (coincidencia parcial, sin importar mayúsculas) a una categoría/subcategoría. Ej.: “Barrientos” → Hogar › Limpieza.
@@ -88,7 +88,7 @@ Tocá **+ Movimiento**. Campos principales: Fecha, Centro de Costo, Tipo (ingres
 ### Cargar efectivo (rápido)
 Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) abre una hoja de carga rápida.
 - El **Monto** va primero, con el teclado ya abierto. Se escribe como siempre: `1.500` o `1.500,50`.
-- **Egreso / Ingreso**, la **Fecha** (Hoy, Ayer u Otra…), el **Centro de Costo** y la **Categoría** se eligen con un toque. El centro que usaste la última vez en ese teléfono viene marcado; las categorías que más usás aparecen primero (*Otra…* muestra todas).
+- **Egreso / Ingreso**, la **Fecha** (Hoy, Ayer u Otra…), el **Centro de Costo** y la **Categoría** se eligen con un toque. En Centro aparecen solo los de efectivo (*Otro…* muestra todos) y viene marcado el tuyo: el centro de efectivo del que sos *Titular* (si tenés varios, el último que usaste en ese teléfono; si no tenés ninguno, el último usado). Un centro es de efectivo si tiene Entidad *Efectivo* en el ABM o "efectivo" en el nombre. Las categorías que más usás aparecen primero (*Otra…* muestra todas).
 - La **Contraparte** se autocompleta con las que ya cargaste y, si tiene una regla de categorización, completa sola la categoría.
 - Detalle y Subcategoría están en **Más datos**; también se pueden completar después desde Movimientos.
 - **Guardar** queda siempre abajo. **Guardar y cargar otro** deja la hoja abierta con la misma fecha, centro y tipo (útil con varios tickets).

@@ -29,7 +29,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   filtros:{centro:[], categoria:[], subcategoria:[], mes:[], dia:'', texto:'', soloIncompletos:false, soloTarjeta:false},
   resumenFiltros:{centro:[], categoria:[], mes:[fechaHoyISO().slice(0,7)], vista:'categoria'}, filtrosResumenAbiertos:null, multiSelectAbierto:null, multiSelectBusqueda:'', abmSubTab:'categorias', grillaRango:'3m',
   vencFormMsg:null, vrecFormMsg:null, dbError:null, saldosCache:null, saldosDirty:true,
-  usuarioEmail:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
+  usuarioEmail:null, usuarioId:null, efectivoAbierto:false, efectivoMsg:null, efectivoCategoriaId:'', efectivoDraft:null, backupMsg:null, menuMovilAbierto:false, incompletosSnapshotIds:null,
   usdtVentaMovId:null, usdtVentaMovMsg:null, usdtVentaMovCantidad:'',
   reglas: [], reglaFormMsg:null, reglasPaginaActual:1, reglasPorPagina:leerTamPagina('controlReglasPorPagina', [15,30,50,100], 15), movPorPagina:leerTamPagina('controlMovPorPagina', [25,50,100,200], 50),
   nuevoMovAbierto:false, movDraftCentroDestinoId:'', comboAbierto:null, comboBusqueda:'', comboHighlight:0,
@@ -46,7 +46,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   importadores:[], importadoresOcultos:[], importadoresMsg:null, // D7
   // Carga rápida de efectivo (pensada para el celular): "Más datos" desplegado, ver todas las categorías,
   // fecha elegida a mano, foco pendiente en el Monto, y el aviso de abajo (con Deshacer) después de guardar.
-  efectivoMasAbierto:false, efectivoTodasCategorias:false, efectivoFechaOtra:false, efectivoFoco:false, aviso:null,
+  efectivoMasAbierto:false, efectivoTodasCategorias:false, efectivoTodosCentros:false, efectivoFechaOtra:false, efectivoFoco:false, aviso:null,
   usdtCotizacionBid:null, usdtCotizacionActualizada:null, usdtCotizacionError:null, usdtCotizacionCargando:false,
   dolaresDraft:null, dolaresFormMsg:null, dolarBlueCompra:null, dolarBlueVenta:null, dolarBlueActualizada:null, dolarBlueError:null, dolarBlueCargando:false,
   deudaFormMsg:null, flujoVentana:'6m', flujoHorizonte:12, filtrosMovAbiertos:false };
@@ -668,6 +668,7 @@ async function intentarLogin(){
   catch(e){ res = { error: { message: 'no hay conexión. Revisá internet y probá de nuevo.' } }; }
   if(res.error){ mostrarLogin('No pudimos iniciar sesión: ' + res.error.message); return; }
   STATE.usuarioEmail = (res.data && res.data.user) ? res.data.user.email : email;
+  STATE.usuarioId = (res.data && res.data.user) ? res.data.user.id : null;
   await mostrarApp();
 }
 
@@ -681,6 +682,7 @@ async function initAuth(){
   var { data } = await sb.auth.getSession();
   if(data && data.session){
     STATE.usuarioEmail = data.session.user ? data.session.user.email : null;
+    STATE.usuarioId = data.session.user ? data.session.user.id : null;
     await mostrarApp();
   } else {
     mostrarLogin();
@@ -952,6 +954,18 @@ function centroEfectivoRecordado(){
   var id = null;
   try{ id = localStorage.getItem('controlCentroEfectivo'); }catch(e){}
   return STATE.centros.some(function(c){ return c.id===id; }) ? id : '';
+}
+// R5: los centros de efectivo (Entidad "Efectivo", o "efectivo" en el nombre) y, entre ellos, los del usuario
+// logueado (Titular). Por defecto va el suyo (el último usado si tiene varios); si no tiene, el último usado.
+function esCentroEfectivo(c){ return entidadCentro(c)==='efectivo'; }
+function centrosEfectivoPropios(){
+  return centrosOrdenados().filter(function(c){ return esCentroEfectivo(c) && STATE.usuarioId && c.titularId===STATE.usuarioId; });
+}
+function centroEfectivoPorDefecto(){
+  var recordado = centroEfectivoRecordado();
+  var propios = centrosEfectivoPropios();
+  if(!propios.length) return recordado;
+  return propios.some(function(c){ return c.id===recordado; }) ? recordado : propios[0].id;
 }
 function fechaHoyISO(){
   var d = new Date();
@@ -2187,6 +2201,7 @@ var ENTIDADES = [
   {id:'icbc', label:'ICBC'},
   {id:'macro', label:'Macro'},
   {id:'galicia', label:'Galicia'},
+  {id:'efectivo', label:'Efectivo'},
   {id:'mercadopago', label:'Mercado Pago'}
 ];
 var MONEDAS_CENTRO = [
@@ -3626,11 +3641,12 @@ function obtenerSaldos(){
 // (elegido en ABM); si todavía no está cargado, adivina por el nombre como fallback para no dejar
 // en blanco los centros viejos. Va en un chip blanco porque los logos vienen pensados para fondo
 // claro (se ven mal sueltos sobre el tema oscuro).
-function logoEntidadHtml(centro){
+function entidadCentro(centro){
   var e = (centro.entidad||'').toLowerCase();
   if(!e){
     var n = (centro.nombre||'').toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u').replace(/ñ/g,'n');
-    if(n.indexOf('santander')>-1) e = 'santander';
+    if(n.indexOf('efectivo')>-1) e = 'efectivo';
+    else if(n.indexOf('santander')>-1) e = 'santander';
     else if(n.indexOf('nacion')>-1) e = 'nacion';
     else if(n.indexOf('provincia')>-1) e = 'provincia';
     else if(n.indexOf('icbc')>-1) e = 'icbc';
@@ -3638,6 +3654,11 @@ function logoEntidadHtml(centro){
     else if(n.indexOf('galicia')>-1) e = 'galicia';
     else if(n.indexOf('mercado pago')>-1 || n.indexOf('mercadopago')>-1) e = 'mercadopago';
   }
+  return e;
+}
+function logoEntidadHtml(centro){
+  var e = entidadCentro(centro);
+  if(e==='efectivo') return '<span class="entidad-logo-wrap entidad-efectivo" title="Efectivo"><i class="bi bi-cash-stack" aria-label="Efectivo"></i></span>';
   var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', macro:'macro.webp', galicia:'galicia.png', mercadopago:'mercadopago.webp'}[e];
   var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', macro:'Macro', galicia:'Galicia', mercadopago:'Mercado Pago'}[e];
   if(!archivo) return '';
@@ -5557,19 +5578,28 @@ function renderModalEfectivo(){
   var hoy = fechaHoyISO(), ayer = fechaAyerISO();
   var fecha = efd.fecha || hoy;
   var tipo = efd.tipo || 'egreso';
-  var centroId = efd.centroId!==undefined ? efd.centroId : centroEfectivoRecordado();
+  var centroId = efd.centroId!==undefined ? efd.centroId : centroEfectivoPorDefecto();
   var categoriaId = STATE.efectivoCategoriaId || '';
   var fechaOtra = STATE.efectivoFechaOtra || (fecha!==hoy && fecha!==ayer);
 
-  var centros = centrosOrdenados();
+  // Solo los de efectivo (más el elegido, si es otro) y "Otro…" para ver todos; si la familia no marcó
+  // ninguno como efectivo, todos. Primero los propios y el último usado.
+  var todosCentros = centrosOrdenados();
+  var centros = todosCentros;
+  if(!STATE.efectivoTodosCentros && todosCentros.some(esCentroEfectivo)){
+    centros = todosCentros.filter(function(c){ return esCentroEfectivo(c) || c.id===centroId; });
+  }
   var recordado = centroEfectivoRecordado();
-  centros.sort(function(a, b){ return (b.id===recordado) - (a.id===recordado); }); // el último usado, primero
+  var propios = centrosEfectivoPropios().map(function(c){ return c.id; });
+  var peso = function(c){ return (propios.indexOf(c.id)!==-1 ? 2 : 0) + (c.id===recordado ? 1 : 0); };
+  centros = centros.slice().sort(function(a, b){ return peso(b) - peso(a); });
   var centrosHtml = centros.length
     ? centros.map(function(c){
         var color = colorCentro(c.id);
         return chipEfectivo('ef-centro', c.id, c.id===centroId, esc(c.codigo)+' <span class="ef-chip-sub">'+esc(c.nombre)+'</span>',
           color ? '--chip-color:'+color : '');
-      }).join('')
+      }).join('')+
+      (centros.length < todosCentros.length ? chipEfectivo('ef-centro', '__todos__', false, 'Otro…') : '')
     : '<div class="empty" style="padding:4px 0">Todavía no hay centros de costo: se crean en ABM.</div>';
 
   var frecuentes = categoriasFrecuentes(tipo, 6);
@@ -6191,7 +6221,7 @@ async function handleAction(action, id){
     STATE.efectivoAbierto = true;
     STATE.efectivoCategoriaId = '';
     STATE.efectivoDraft = null;
-    STATE.efectivoMasAbierto = false; STATE.efectivoTodasCategorias = false; STATE.efectivoFechaOtra = false;
+    STATE.efectivoMasAbierto = false; STATE.efectivoTodasCategorias = false; STATE.efectivoTodosCentros = false; STATE.efectivoFechaOtra = false;
     STATE.efectivoFoco = true;
     STATE.menuMovilAbierto = false;
     render(); return;
@@ -6212,7 +6242,10 @@ async function handleAction(action, id){
       if(id==='hoy') draftEf.fecha = fechaHoyISO();
       if(id==='ayer') draftEf.fecha = fechaAyerISO();
     }
-    if(action==='ef-centro') draftEf.centroId = draftEf.centroId===id ? '' : id;
+    if(action==='ef-centro'){
+      if(id==='__todos__') STATE.efectivoTodosCentros = true;
+      else draftEf.centroId = draftEf.centroId===id ? '' : id;
+    }
     if(action==='ef-categoria'){
       if(id==='__todas__') STATE.efectivoTodasCategorias = true;
       else {

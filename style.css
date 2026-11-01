@@ -385,6 +385,7 @@ tfoot td{ border-top:2px solid var(--accent); border-bottom:none; font-weight:60
 .saldo-item-monto{ font-family:'Geist Mono',ui-monospace,Consolas,monospace; font-variant-numeric:tabular-nums; font-size:19px; font-weight:600; margin-top:6px; }
 .entidad-logo-wrap{ background:#fff; border-radius:6px; padding:4px 6px; display:inline-flex; align-items:center; flex-shrink:0; }
 .entidad-logo{ height:24px; width:auto; max-width:84px; object-fit:contain; }
+.entidad-efectivo{ color:var(--accent); font-size:18px; line-height:24px; padding:4px 8px; }
 
 .bar-row{ display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--rule); }
 .bar-row .name{ width:180px; font-size:12px; flex-shrink:0; }

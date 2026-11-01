@@ -165,3 +165,59 @@ describe('Cargar efectivo: teclado de Android', () => {
     expect($(win, 'ef-monto')).not.toBe(monto);
   });
 });
+
+describe('Cargar efectivo: centro del usuario logueado (R5)', () => {
+  const chipsCentro = (win) => [...win.document.querySelectorAll('[data-action="ef-centro"]')].map(b => b.getAttribute('data-id'));
+  const abrir = async (centros, usuarioId, recordado) => {
+    const win = loadApp();
+    seedBase(win);
+    win.STATE.centros = centros;
+    win.STATE.usuarioId = usuarioId;
+    if (recordado) win.localStorage.setItem('controlCentroEfectivo', recordado);
+    await win.handleAction('abrir-efectivo');
+    return win;
+  };
+  const centros = [
+    { id: 'c-ef', codigo: 'EFVO FRANCO', nombre: 'Efectivo Franco', titularId: 'u-franco' },
+    { id: 'c-ea', codigo: 'EFVO ANA', nombre: 'Caja chica', entidad: 'efectivo', titularId: 'u-ana' },
+    { id: 'c-gal', codigo: 'GALICIA', nombre: 'Banco Galicia', entidad: 'galicia', titularId: 'u-ana' },
+  ];
+
+  it('elige el centro de efectivo del usuario y muestra solo los de efectivo (el suyo primero) más "Otro…"', async () => {
+    const win = await abrir(centros, 'u-ana');
+    expect($(win, 'ef-centro').value).toBe('c-ea');
+    expect(chipsCentro(win)).toEqual(['c-ea', 'c-ef', '__todos__']);
+  });
+
+  it('"Otro…" muestra todos los centros sin cambiar el elegido', async () => {
+    const win = await abrir(centros, 'u-ana');
+    await win.handleAction('ef-centro', '__todos__');
+    expect(chipsCentro(win)).toEqual(['c-ea', 'c-ef', 'c-gal']);
+    expect($(win, 'ef-centro').value).toBe('c-ea');
+  });
+
+  it('el último usado en el dispositivo no le gana al propio, salvo que sea uno de los propios', async () => {
+    expect($(await abrir(centros, 'u-ana', 'c-ef'), 'ef-centro').value).toBe('c-ea');
+    const dosPropios = centros.concat([{ id: 'c-ea2', codigo: 'EFVO ANA 2', nombre: 'Efectivo Ana dólares', titularId: 'u-ana' }]);
+    expect($(await abrir(dosPropios, 'u-ana', 'c-ea2'), 'ef-centro').value).toBe('c-ea2');
+  });
+
+  it('sin centro de efectivo propio usa el último usado, y si es de otro tipo igual se ve en la lista', async () => {
+    const win = await abrir(centros, 'u-otro', 'c-gal');
+    expect($(win, 'ef-centro').value).toBe('c-gal');
+    expect(chipsCentro(win)).toEqual(['c-gal', 'c-ea', 'c-ef']);
+  });
+
+  it('si la familia no tiene ningún centro de efectivo, muestra todos (como antes)', async () => {
+    const win = await abrir([{ id: 'c-1', codigo: 'A', nombre: 'Cuenta A' }, { id: 'c-2', codigo: 'B', nombre: 'Cuenta B' }], 'u-ana');
+    expect(chipsCentro(win)).toEqual(['c-1', 'c-2']);
+    expect($(win, 'ef-centro').value).toBe('');
+  });
+
+  it('la entidad Efectivo se puede elegir en el ABM y se ve con un ícono de billetes', () => {
+    const win = loadApp();
+    expect(win.ENTIDADES.map(e => e.id)).toContain('efectivo');
+    expect(win.logoEntidadHtml({ entidad: 'efectivo' })).toContain('bi-cash-stack');
+    expect(win.logoEntidadHtml({ nombre: 'Efectivo Gerardo' })).toContain('bi-cash-stack');
+  });
+});
