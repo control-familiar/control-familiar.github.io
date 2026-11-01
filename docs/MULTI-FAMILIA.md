@@ -188,7 +188,7 @@ En la base, no en el código:
 - El parser de cada banco sigue siendo JavaScript en `app.js`; se conecta con la fila por `codigo`
   (`'santander'` → `parseSantander`). Agregar un banco = parser en el código + migración que inserta la fila.
 - Casos borde: fila sin parser en el código → no se muestra (y se avisa en consola); parser sin fila → no aparece.
-- **Una fila por cada forma de importar** (I1): `mp`, `santander`, `nacion`, `provincia`, `macro`, los resúmenes de tarjeta
+- **Una fila por cada forma de importar** (I1): `mp`, `santander`, `nacion`, `provincia`, `macro`, `galicia`, los resúmenes de tarjeta
   `tarjeta_nacion`, `tarjeta_santander`, `tarjeta_provincia`, `tarjeta_mercadopago`, `tarjeta_galicia` y `excel` (Excel histórico, I4).
   En Importar los de tarjeta (prefijo `tarjeta_`) se eligen como "Tarjeta de Crédito" + banco; esa opción aparece si
   hay alguno visible y la función Tarjetas está prendida. En `app.js`: `PARSERS_IMPORTACION` e `importadoresVisibles()`.

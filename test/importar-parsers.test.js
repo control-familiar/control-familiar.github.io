@@ -372,6 +372,33 @@ describe('parseTarjetaGalicia', () => {
   });
 });
 
+describe('parseGalicia (cuenta)', () => {
+  it('separa el texto pegado por fecha, toma el importe con "$" e ignora el repetido y los "Saldo parcial"', () => {
+    const raw = 'FechaDescripciónMonto\n' +
+      '02/11/2026Transferencia a terceros-$53.000,00-53.000,00 Pesos 30/10/2026Rescate fima$2.092.975,082.092.975,08 Pesos ' +
+      '16/10/2026Interes capitalizado$4,124,12 Pesos 05/10/2026Transferencia a terceros-$75.772,00\n' +
+      'Saldo parcial: $50.171,93\n' +
+      '-75.772,00 Pesos 28/09/2026Rescate fima$426.662,51';
+    const res = win.parseGalicia(raw);
+    expect(res.omitidas).toBe(0);
+    expect(res.rows.map(r => [r.fecha, r.proveedor, r.monto])).toEqual([
+      ['02-11-26', 'Transferencia a terceros', -53000],
+      ['30-10-26', 'Rescate fima', 2092975.08],
+      ['16-10-26', 'Interes capitalizado', 4.12],
+      ['05-10-26', 'Transferencia a terceros', -75772],
+      ['28-09-26', 'Rescate fima', 426662.51],
+    ]);
+    expect(res.rows[0]).toMatchObject({ tipo: '', ingreso: '', egreso: '53.000,00' });
+    expect(res.rows[1]).toMatchObject({ ingreso: '2.092.975,08', egreso: '' });
+  });
+
+  it('omite y cuenta los movimientos en dólares', () => {
+    const res = win.parseGalicia('02/11/2026Compra-$10,00-10,00 Dólares 01/11/2026Kiosco-$500,00-500,00 Pesos');
+    expect(res.omitidas).toBe(1);
+    expect(res.rows.map(r => r.proveedor)).toEqual(['Kiosco']);
+  });
+});
+
 describe('parseSantander (cuenta)', () => {
   it('agrupa por bloques de fecha y extrae proveedor desde "De X/Y" o desde el tipo', () => {
     const raw = [

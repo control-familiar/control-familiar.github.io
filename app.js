@@ -1598,6 +1598,36 @@ function parseMacro(raw){
   return rows;
 }
 
+// Galicia (cuenta): lo copiado de la web viene pegado, sin separadores: "02/11/2026Transferencia a terceros
+// -$53.000,00-53.000,00 Pesos". Cada movimiento empieza con su fecha; se toma el primer importe (el que lleva
+// "$") y el repetido se ignora. Los "Saldo parcial: $X" de los cortes de página se descartan, y los
+// movimientos en dólares (cuenta en dólares) se omiten y se avisan.
+function parseGalicia(raw){
+  var texto = raw.replace(/Saldo parcial:\s*-?\s*\$\s*[\d.]+,\d{2}/gi, ' ').replace(/\s+/g, ' ');
+  var partes = texto.split(/(\d{2}\/\d{2}\/\d{4})/);
+  var reFila = /^(.*?)(-?)\s*\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/;
+  var rows = [];
+  var omitidas = 0;
+  for(var i=1; i+1<partes.length; i+=2){
+    var fm = partes[i].split('/');
+    var segmento = partes[i+1].trim();
+    var mm = segmento.match(reFila);
+    if(!mm) continue;
+    if(/d[oó]lares/i.test(segmento.slice(mm[0].length))){ omitidas++; continue; }
+    var val = parseMonto(mm[3]);
+    var monto = mm[2]==='-' ? -Math.abs(val) : Math.abs(val);
+    rows.push({
+      fecha: fm[0]+'-'+fm[1]+'-'+fm[2].slice(2),
+      proveedor: mm[1].trim() || 'Movimiento',
+      tipo: '',
+      monto: monto,
+      ingreso: monto>0 ? formatMonto(monto) : '',
+      egreso: monto<0 ? formatMonto(monto) : ''
+    });
+  }
+  return { rows: rows, omitidas: omitidas };
+}
+
 function extraerProveedorSantander(tipo, detalle){
   var m = detalle.match(/^(De|A)\s+(.+)$/i);
   if(m){
@@ -1851,7 +1881,7 @@ function parseExcelHistorico(raw){
 // Importadores (D7): las filas de la tabla "importadores" se conectan por código con su parser. Los de
 // tarjeta ("tarjeta_<banco>") se eligen en pantalla como "Tarjeta de Crédito" + banco. Agregar un banco =
 // parser acá + fila en la tabla (schema.sql).
-var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia', 'macro',
+var PARSERS_IMPORTACION = ['mp', 'santander', 'nacion', 'provincia', 'macro', 'galicia',
   'tarjeta_nacion', 'tarjeta_santander', 'tarjeta_provincia', 'tarjeta_mercadopago', 'tarjeta_galicia', 'excel'];
 function esImportadorTarjeta(codigo){ return codigo.indexOf('tarjeta_')===0; }
 var IMPORTADORES_SIN_PARSER_AVISADOS = {};
@@ -1883,6 +1913,10 @@ function runParser(){
   if(entidad === 'nacion') return { rows: parseNacion(raw), error: null };
   if(entidad === 'provincia') return { rows: parseProvincia(raw), error: null };
   if(entidad === 'macro') return { rows: parseMacro(raw), error: null };
+  if(entidad === 'galicia'){
+    var resGaliciaCuenta = parseGalicia(raw);
+    return { rows: resGaliciaCuenta.rows, error: null, omitidas: resGaliciaCuenta.omitidas };
+  }
   if(entidad === 'tarjeta'){
     var venc = STATE.importVencimiento || '';
     if(!venc.trim()) return { rows: [], error: 'Ingresá la fecha de vencimiento del resumen.' };
@@ -2139,6 +2173,7 @@ var ENTIDADES = [
   {id:'provincia', label:'Provincia'},
   {id:'icbc', label:'ICBC'},
   {id:'macro', label:'Macro'},
+  {id:'galicia', label:'Galicia'},
   {id:'mercadopago', label:'Mercado Pago'}
 ];
 var MONEDAS_CENTRO = [
@@ -3587,10 +3622,11 @@ function logoEntidadHtml(centro){
     else if(n.indexOf('provincia')>-1) e = 'provincia';
     else if(n.indexOf('icbc')>-1) e = 'icbc';
     else if(n.indexOf('macro')>-1) e = 'macro';
+    else if(n.indexOf('galicia')>-1) e = 'galicia';
     else if(n.indexOf('mercado pago')>-1 || n.indexOf('mercadopago')>-1) e = 'mercadopago';
   }
-  var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', macro:'macro.webp', mercadopago:'mercadopago.webp'}[e];
-  var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', macro:'Macro', mercadopago:'Mercado Pago'}[e];
+  var archivo = {santander:'santander.svg', nacion:'nacion.svg', provincia:'provincia.svg', icbc:'icbc.svg', macro:'macro.webp', galicia:'galicia.png', mercadopago:'mercadopago.webp'}[e];
+  var nombreEntidad = {santander:'Santander', nacion:'Nación', provincia:'Provincia', icbc:'ICBC', macro:'Macro', galicia:'Galicia', mercadopago:'Mercado Pago'}[e];
   if(!archivo) return '';
   return '<span class="entidad-logo-wrap"><img class="entidad-logo" src="assets/logos/'+archivo+'" alt="'+nombreEntidad+'" title="'+nombreEntidad+'"></span>';
 }

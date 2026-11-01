@@ -164,3 +164,12 @@ describe('Centros: entidad Macro', () => {
     expect(win.logoEntidadHtml({ nombre: 'Caja de ahorro Macro' })).toContain('alt="Macro"');
   });
 });
+
+describe('Centros: entidad Galicia', () => {
+  it('se puede elegir como Entidad y muestra su logo (también si solo el nombre dice "Galicia")', () => {
+    const win = loadApp();
+    expect(win.ENTIDADES.map(e => e.id)).toContain('galicia');
+    expect(win.logoEntidadHtml({ entidad: 'galicia' })).toContain('assets/logos/galicia.png');
+    expect(win.logoEntidadHtml({ nombre: 'Cuenta Galicia' })).toContain('alt="Galicia"');
+  });
+});

@@ -70,7 +70,7 @@ Las marcadas *(opcional)*, igual que Facturación ARCA y Tarjetas y cuotas, apar
 
 Antes de cargar datos, armá la base en **ABM** (cada sección es una subpestaña):
 
-1. **Centros de Costo.** Por cada cuenta: *Código* (ej. `MPF`), *Nombre*, *Color*, *Entidad* (Santander, Nación, Provincia, ICBC, Macro, Mercado Pago: muestra el logo en Saldos) y *Moneda* (Pesos, Dólares o Pesos y dólares).
+1. **Centros de Costo.** Por cada cuenta: *Código* (ej. `MPF`), *Nombre*, *Color*, *Entidad* (Santander, Nación, Provincia, ICBC, Macro, Galicia, Mercado Pago: muestra el logo en Saldos) y *Moneda* (Pesos, Dólares o Pesos y dólares).
 2. **Categorías.** Nombre, color y tratamiento en reportes (ver [sección 2](#tratamiento-de-las-categorías-en-reportes)). Para que cada cuenta arranque con su saldo actual, creá una categoría **“Saldo Inicial”** y cargá un movimiento por cuenta con ese monto.
 3. **Subcategorías.** Se crean dentro de una categoría. También se pueden crear al vuelo escribiendo un nombre nuevo en el campo Subcategoría de un movimiento. Al borrar una subcategoría con movimientos, la app permite **reasignarlos** a otra o dejarlos sin subcategoría.
 4. **Reglas de categorización** (opcional, ahorra tiempo al importar): asociá un texto de contraparte (coincidencia parcial, sin importar mayúsculas) a una categoría/subcategoría. Ej.: “Barrientos” → Hogar › Limpieza.
@@ -107,7 +107,7 @@ Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) 
 
 **Importar** convierte el texto copiado de un resumen en movimientos.
 
-1. Elegí la **Entidad**: Mercado Pago, Santander, Nación, Provincia, Macro, Tarjeta de Crédito o *Excel histórico* (ya categorizado). Ves los que están habilitados para tu familia; si te falta uno, pedíselo al soporte.
+1. Elegí la **Entidad**: Mercado Pago, Santander, Nación, Provincia, Macro, Galicia, Tarjeta de Crédito o *Excel histórico* (ya categorizado). Ves los que están habilitados para tu familia; si te falta uno, pedíselo al soporte.
 2. Para *Tarjeta de Crédito* indicá además Banco, Vencimiento del resumen y, opcionalmente, la marca.
 3. Pegá el texto del resumen en el cuadro y tocá **Previsualizar**.
 4. Revisá la tabla: podés corregir centro, categoría y subcategoría de cada fila. Las **reglas de categorización** completan las que coincidan, y los **posibles duplicados** (mismo centro, contraparte, monto y fecha que algo ya cargado) quedan marcados.
