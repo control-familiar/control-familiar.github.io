@@ -91,7 +91,7 @@ Pensado para el celular: el botón flotante **+ Efectivo** (abajo a la derecha) 
 - **Egreso / Ingreso**, la **Fecha** (Hoy, Ayer u Otra…), el **Centro de Costo** y la **Categoría** se eligen con un toque. En Centro aparecen solo los de efectivo (*Otro…* muestra todos) y viene marcado el tuyo: el centro de efectivo del que sos *Titular* (si tenés varios, el último que usaste en ese teléfono; si no tenés ninguno, el último usado). Un centro es de efectivo si tiene Entidad *Efectivo* en el ABM o "efectivo" en el nombre. Las categorías que más usás aparecen primero (*Otra…* muestra todas).
 - La **Contraparte** se autocompleta con las que ya cargaste y, si tiene una regla de categorización, completa sola la categoría.
 - Detalle y Subcategoría están en **Más datos**; también se pueden completar después desde Movimientos.
-- **Guardar** queda siempre abajo. **Guardar y cargar otro** deja la hoja abierta con la misma fecha, centro y tipo (útil con varios tickets).
+- **Guardar** queda siempre abajo; al guardar, la hoja se cierra y te lleva a **Movimientos** con lo cargado a la vista y resaltado (si algún filtro lo ocultaba, se limpian; si la fecha es futura, te lleva a Vencimientos). **Guardar y cargar otro** deja la hoja abierta con la misma fecha, centro y tipo (útil con varios tickets).
 - Después de guardar aparece un aviso con **Deshacer** por unos segundos. La hoja se cierra con *Cancelar*, tocando afuera o deslizándola hacia abajo.
 
 ### Listado de Movimientos

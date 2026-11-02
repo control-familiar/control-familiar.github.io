@@ -637,3 +637,7 @@ footer.small{ margin-top:28px; font-size:11px; color:var(--ink-soft); text-align
   .bar-row .name{ width:42%; }
   .bar-row .amt{ min-width:0; }
 }
+
+/* Movimiento recién cargado desde Efectivo: se ilumina y se apaga solo. */
+@keyframes fila-recien{ from{ background:var(--accent-soft); } to{ background:transparent; } }
+tr.fila-recien > td{ animation:fila-recien 3.5s ease-out; }

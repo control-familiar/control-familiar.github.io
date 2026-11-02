@@ -221,3 +221,82 @@ describe('Cargar efectivo: centro del usuario logueado (R5)', () => {
     expect(win.logoEntidadHtml({ nombre: 'Efectivo Gerardo' })).toContain('bi-cash-stack');
   });
 });
+
+describe('Cargar efectivo: tecla "Realizar" del teclado', () => {
+  it('Enter en el Monto le saca el foco (cierra el teclado en Android) sin perder lo escrito', async () => {
+    const win = loadApp();
+    seedBase(win);
+    await win.handleAction('abrir-efectivo');
+    const monto = $(win, 'ef-monto');
+    monto.focus();
+    monto.value = '20000';
+    expect(win.document.activeElement).toBe(monto);
+    monto.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(win.document.activeElement).not.toBe(monto);
+    expect($(win, 'ef-monto').value).toBe('20000');
+  });
+});
+
+describe('Cargar efectivo: orden de los campos', () => {
+  it('Categoría va antes que Contraparte', async () => {
+    const win = loadApp();
+    seedBase(win);
+    await win.handleAction('abrir-efectivo');
+    const etiquetas = [...win.document.querySelectorAll('.ef-cuerpo .field > label')].map(l => l.textContent);
+    expect(etiquetas.indexOf('Categoría (opcional)')).toBeLessThan(etiquetas.indexOf('Contraparte (opcional)'));
+    expect(etiquetas.indexOf('Centro de Costo')).toBeLessThan(etiquetas.indexOf('Categoría (opcional)'));
+  });
+});
+
+describe('Cargar efectivo: después de Guardar va a ver lo cargado', () => {
+  let win;
+  beforeEach(async () => {
+    win = loadApp();
+    seedBase(win);
+    win.sb = mockSb().client;
+    win.STATE.activeTab = 'resumen';
+    win.STATE.movimientos = Array.from({ length: 60 }, (_, i) => (
+      { id: 'v' + i, fecha: '2026-01-' + String((i % 28) + 1).padStart(2, '0'), centroId: 'c-ef', proveedor: 'Viejo ' + i, ingreso: 0, egreso: 10 }));
+    await win.handleAction('abrir-efectivo');
+  });
+
+  it('Guardar lleva a Movimientos con el nuevo a la vista y resaltado, limpiando filtros que lo ocultarían', async () => {
+    win.STATE.filtros.centro = ['c-ea'];
+    win.STATE.filtros.texto = 'otra cosa';
+    $(win, 'ef-monto').value = '700';
+    await win.handleAction('ef-centro', 'c-ef');
+    await win.handleAction('guardar-efectivo');
+    const nuevo = win.STATE.movimientos.at(-1);
+    expect(win.STATE.activeTab).toBe('movimientos');
+    expect(win.STATE.filtros.centro).toEqual([]);
+    expect(win.STATE.filtros.texto).toBe('');
+    const fila = win.document.querySelector('[data-mov-id="' + nuevo.id + '"]').closest('tr');
+    expect(fila.className).toContain('fila-recien');
+  });
+
+  it('si los filtros ya lo muestran, no se tocan', async () => {
+    win.STATE.filtros.centro = ['c-ef'];
+    $(win, 'ef-monto').value = '700';
+    await win.handleAction('ef-centro', 'c-ef');
+    await win.handleAction('guardar-efectivo');
+    expect(win.STATE.activeTab).toBe('movimientos');
+    expect(win.STATE.filtros.centro).toEqual(['c-ef']);
+  });
+
+  it('con fecha futura va a Vencimientos', async () => {
+    const d = new Date(); d.setDate(d.getDate() + 10);
+    const futura = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    await win.handleAction('ef-fecha', 'otra');
+    $(win, 'ef-fecha').value = futura;
+    $(win, 'ef-monto').value = '700';
+    await win.handleAction('guardar-efectivo');
+    expect(win.STATE.activeTab).toBe('vencimientos');
+  });
+
+  it('"Guardar y cargar otro" se queda en el modal y no cambia de pestaña', async () => {
+    $(win, 'ef-monto').value = '700';
+    await win.handleAction('guardar-efectivo-otro');
+    expect(win.STATE.efectivoAbierto).toBe(true);
+    expect(win.STATE.activeTab).toBe('resumen');
+  });
+});

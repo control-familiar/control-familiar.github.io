@@ -33,7 +33,7 @@ var STATE = { centros: [], categorias: [], subcategorias: [], movimientos: [], v
   usdtVentaMovId:null, usdtVentaMovMsg:null, usdtVentaMovCantidad:'',
   reglas: [], reglaFormMsg:null, reglasPaginaActual:1, reglasPorPagina:leerTamPagina('controlReglasPorPagina', [15,30,50,100], 15), movPorPagina:leerTamPagina('controlMovPorPagina', [25,50,100,200], 50),
   nuevoMovAbierto:false, movDraftCentroDestinoId:'', comboAbierto:null, comboBusqueda:'', comboHighlight:0,
-  movSeleccionados:[], bulkEditMovAbierto:false, bulkEditMovMsg:null, movPaginaActual:1, gruposAbiertos:{},
+  movSeleccionados:[], movResaltadoId:null, movIrA:null, movScrollA:null, bulkEditMovAbierto:false, bulkEditMovMsg:null, movPaginaActual:1, gruposAbiertos:{},
   tema: (function(){ try{ return localStorage.getItem('controlTema')==='oscuro' ? 'oscuro' : 'claro'; }catch(e){ return 'claro'; } })(),
   temaColor: (function(){ try{ var c = localStorage.getItem('controlTemaColor'); return (c==='azul'||c==='naranja') ? c : 'verde'; }catch(e){ return 'verde'; } })(),
   menuUsuarioAbierto:false, usdtFormMsg:null, usdtDraft:null, usdtIngresoOpcionalesAbierto:false,
@@ -2853,6 +2853,12 @@ function renderMovimientos(){
     g.movs.push(m);
   });
 
+  if(STATE.movIrA){
+    var idxIrA = vista.findIndex(function(v){ return v.tipo==='mov' && v.mov.id===STATE.movIrA; });
+    if(idxIrA!==-1) STATE.movPaginaActual = Math.floor(idxIrA / STATE.movPorPagina) + 1;
+    STATE.movScrollA = STATE.movIrA;
+    STATE.movIrA = null;
+  }
   var totalPaginasMov = Math.max(1, Math.ceil(vista.length / STATE.movPorPagina));
   if(STATE.movPaginaActual > totalPaginasMov) STATE.movPaginaActual = totalPaginasMov;
   if(STATE.movPaginaActual < 1) STATE.movPaginaActual = 1;
@@ -2878,7 +2884,7 @@ function renderMovimientos(){
       celdaProveedor = celdasRO.proveedor; celdaDetalle = celdasRO.detalle;
     }
 
-    var claseFila = incompleto ? 'fila-incompleta' : '';
+    var claseFila = (incompleto ? 'fila-incompleta' : '') + (m.id===STATE.movResaltadoId ? ' fila-recien' : '');
     var tituloFila = incompleto ? ' title="Falta: '+esc(faltan.join(', '))+'"' : '';
     var fechaFiltrable = !f.soloIncompletos && (m.fecha||'');
     idsCheckboxVisibles.push(m.id);
@@ -5248,6 +5254,14 @@ function bindEvents(){
   });
 
 
+  // Recién cargado desde Efectivo: que quede a la vista.
+  if(STATE.movScrollA){
+    var chkRecien = document.querySelector('[data-mov-id="'+STATE.movScrollA+'"]');
+    STATE.movScrollA = null;
+    if(chkRecien && chkRecien.closest('tr') && chkRecien.closest('tr').scrollIntoView){
+      try{ chkRecien.closest('tr').scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){}
+    }
+  }
   // Efectivo: al abrir (o después de "Guardar y cargar otro"), foco en el Monto con el teclado abierto.
   var efMontoInput = document.getElementById('ef-monto');
   if(efMontoInput && STATE.efectivoFoco){
@@ -5573,6 +5587,20 @@ function contrapartesRecientes(cantidad){
 function chipEfectivo(accion, id, activo, contenido, extraStyle){
   return '<button type="button" class="ef-chip'+(activo?' activo':'')+'" data-action="'+accion+'" data-id="'+esc(id)+'" aria-pressed="'+activo+'"'+(extraStyle?' style="'+extraStyle+'"':'')+'>'+contenido+'</button>';
 }
+// Después de Guardar (y cerrar) en Cargar efectivo: ir a donde se ve lo cargado. Movimientos, en su página y
+// resaltado unos segundos (si los filtros lo ocultan, se limpian); si tiene fecha futura, Vencimientos.
+function irAlMovimientoCargado(m){
+  if(esMovimientoPendiente(m)){ STATE.activeTab = 'vencimientos'; return; }
+  STATE.activeTab = 'movimientos';
+  STATE.editing = null;
+  if(movimientosFiltrados(STATE.filtros).indexOf(m)===-1){
+    STATE.filtros = {centro:[], categoria:[], subcategoria:[], mes:[], dia:'', texto:'', soloIncompletos:false, soloTarjeta:false};
+    STATE.incompletosSnapshotIds = null;
+  }
+  STATE.movResaltadoId = m.id;
+  STATE.movIrA = m.id;
+  setTimeout(function(){ if(STATE.movResaltadoId===m.id) STATE.movResaltadoId = null; }, 4000);
+}
 function renderModalEfectivo(){
   var efd = STATE.efectivoDraft || {};
   var hoy = fechaHoyISO(), ayer = fechaAyerISO();
@@ -5645,10 +5673,10 @@ function renderModalEfectivo(){
       '</div>'+
       '<div class="field"><label>Centro de Costo</label><div class="ef-chips">'+centrosHtml+'</div>'+
         '<input type="hidden" id="ef-centro" value="'+esc(centroId||'')+'"></div>'+
+      '<div class="field"><label>Categoría (opcional)</label><div class="ef-chips">'+categoriasHtml+'</div>'+categoriaCampo+'</div>'+
       '<div class="field"><label for="ef-proveedor">Contraparte (opcional)</label>'+
         '<input type="text" id="ef-proveedor" list="ef-proveedores" autocomplete="off" placeholder="Ej: Kiosco" value="'+esc(efd.proveedor||'')+'">'+
         '<datalist id="ef-proveedores">'+contrapartesRecientes(60).map(function(p){ return '<option value="'+esc(p)+'">'; }).join('')+'</datalist></div>'+
-      '<div class="field"><label>Categoría (opcional)</label><div class="ef-chips">'+categoriasHtml+'</div>'+categoriaCampo+'</div>'+
       masHtml+
     '</div>'+
     '<div class="ef-acciones">'+
@@ -6308,6 +6336,7 @@ async function handleAction(action, id){
         STATE.efectivoAbierto = false;
         STATE.efectivoDraft = null;
         STATE.efectivoFechaOtra = false;
+        irAlMovimientoCargado(nuevoEf);
       }
       mostrarAviso((efTipo==='ingreso' ? 'Ingreso' : 'Egreso')+' de $'+fmtMonto(efMonto)+' cargado.', nuevoEf.id);
     }catch(e){
@@ -7234,6 +7263,14 @@ document.addEventListener('click', function(ev){
   STATE.multiSelectAbierto = null;
   STATE.multiSelectBusqueda = '';
   render();
+});
+
+// Tecla "Realizar"/"Listo" del teclado del celular (enterkeyhint="done"): solo cambia el texto de la tecla, que
+// manda un Enter; fuera de un formulario no hace nada y en Android el teclado queda abierto. Se saca el foco para cerrarlo.
+document.addEventListener('keydown', function(ev){
+  if(ev.key!=='Enter' || ev.isComposing) return;
+  var t = ev.target;
+  if(t && t.getAttribute && t.getAttribute('enterkeyhint')==='done'){ ev.preventDefault(); t.blur(); }
 });
 
 // Cerrar el menú de usuario (avatar) al hacer clic fuera de él, mismo patrón que el multiselect de arriba.
